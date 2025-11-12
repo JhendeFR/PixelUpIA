@@ -24,7 +24,7 @@ class EsrganProcessor(context: Context, useGPU: Boolean = false) {
     private val TILE_OUTPUT_SIZE = (TILE_SIZE * SCALE) * (TILE_SIZE * SCALE)
     private val BYTES_PER_FLOAT = 4 // FLOAT32
 
-    // Buffers de entrada/salida de TFLite (reutilizados)
+    // Buffers de entrada/salida de TFLite
     // Usamos ByteBuffer para control manual, no TensorImage
     private val inputBuffer: ByteBuffer
     private val outputBuffer: ByteBuffer
