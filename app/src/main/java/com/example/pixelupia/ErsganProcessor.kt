@@ -18,7 +18,7 @@ import kotlin.math.min
 
 class EsrganProcessor(context: Context, useGPU: Boolean = false) {
 
-    private val TILE_SIZE = 50
+    private val TILE_SIZE = 50 // Tamaño del tile de entrada
     private val SCALE = 4
     private val CHANNELS = 3
     private val TILE_INPUT_SIZE = TILE_SIZE * TILE_SIZE
