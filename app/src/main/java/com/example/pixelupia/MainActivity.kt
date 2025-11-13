@@ -21,6 +21,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+// Enum para el modo de mejora
+enum class EnhanceMode {
+    FULL, // Mejora x4
+    SIMPLE // Mejora de detalles (revisa documentacion para mas detalles)
+}
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var processor: EsrganProcessor
@@ -39,37 +45,38 @@ class MainActivity : ComponentActivity() {
                     PixelUpIATheme {
                         var selectedUri by remember { mutableStateOf<Uri?>(null) }
                         var isLoading by remember { mutableStateOf(false) }
+                        var progress by remember { mutableStateOf(0f) }
 
-                        // --- Para el mensaje de "Guardado" ---
                         val scope = rememberCoroutineScope()
                         val snackbarHostState = remember { SnackbarHostState() }
 
                         if (selectedUri == null) {
                             GaleriaScreen { uri -> selectedUri = uri }
                         } else {
-                            // --- Lógica de UI actualizada ---
                             VisorScreen(
                                 uri = selectedUri!!,
                                 isLoading = isLoading,
-                                snackbarHostState = snackbarHostState, // 👈 Pasar el state
-                                onEnhance = { bitmap ->
+                                progress = progress,
+                                snackbarHostState = snackbarHostState,
+                                onEnhance = { bitmap, mode ->
                                     if (!isLoading) {
-                                        scope.launch { // 👈 Usar el scope de compose
+                                        scope.launch {
                                             isLoading = true
+                                            progress = 0f
 
-                                            // 1. Procesar en hilo Default
                                             val result = withContext(Dispatchers.Default) {
-                                                processor.enhance(bitmap) // Tiling code
+                                                when (mode) {
+                                                    EnhanceMode.FULL -> enhanceFull(bitmap) { progress = it }
+                                                    EnhanceMode.SIMPLE -> enhanceSimple(bitmap) { progress = it }
+                                                }
                                             }
-
-                                            // 2. Guardar en hilo IO
                                             val savedUri = withContext(Dispatchers.IO) {
                                                 saveBitmapToGallery(this@MainActivity, result, "enhanced_pixelupia")
                                             }
 
                                             isLoading = false
+                                            progress = 0f
 
-                                            // 3. Mostrar resultado en hilo Main
                                             if (savedUri != null) {
                                                 snackbarHostState.showSnackbar("Imagen guardada en la galería")
                                             } else {
@@ -81,6 +88,7 @@ class MainActivity : ComponentActivity() {
                                 onBack = {
                                     selectedUri = null
                                     isLoading = false
+                                    progress = 0f
                                 }
                             )
                         }
@@ -102,7 +110,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // --- NUEVA FUNCIÓN PARA GUARDAR EN GALERÍA ---
+    // Lógica de Mejora x4
+    private suspend fun enhanceFull(bitmap: Bitmap, onProgress: (Float) -> Unit): Bitmap {
+        return processor.enhance(bitmap, onProgress)
+    }
+
+    // Lógica de Mejora Simple
+    private suspend fun enhanceSimple(bitmap: Bitmap, onProgress: (Float) -> Unit): Bitmap {
+        // 1. Reducir a 320x320
+        val downscaledBitmap = withContext(Dispatchers.Default) {
+            Bitmap.createScaledBitmap(bitmap, 320, 320, true)
+        }
+        onProgress(0.2f)
+
+        // 2. Pasar a ESRGAN (saldrá en 1280x1280)
+        val enhancedBitmap = processor.enhance(downscaledBitmap) {
+            onProgress(0.2f + (it * 0.6f)) // Progreso de 0.2 a 0.8
+        }
+
+        // 3. Estirar a 1080p (cuadrado)
+        val finalBitmap = withContext(Dispatchers.Default) {
+            Bitmap.createScaledBitmap(enhancedBitmap, 1080, 1080, true)
+        }
+        onProgress(1.0f)
+        return finalBitmap
+    }
+
     private fun saveBitmapToGallery(context: Context, bitmap: Bitmap, displayName: String): Uri? {
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -128,7 +161,8 @@ class MainActivity : ComponentActivity() {
                     if (outputStream == null) {
                         throw Exception("No se pudo abrir OutputStream")
                     }
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+                    // Comprimir como JPEG con calidad 95
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
                 }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -139,7 +173,6 @@ class MainActivity : ComponentActivity() {
             }
             return uri
         } catch (e: Exception) {
-            // Si algo falla (ej. uri es null), eliminar la entrada
             uri?.let { resolver.delete(it, null, null) }
             e.printStackTrace()
             return null

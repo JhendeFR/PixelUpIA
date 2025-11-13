@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,7 +12,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -19,8 +20,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-// --- NUEVA Data Class para Álbumes ---
 data class Album(
     val id: Long,
     val name: String,
@@ -42,64 +44,74 @@ fun GaleriaScreen(onImageClick: (Uri) -> Unit) {
         MediaStore.Images.Media.EXTERNAL_CONTENT_URI
     }
 
-    // --- Cargar Álbumes ---
     LaunchedEffect(Unit) {
-        val albumMap = mutableMapOf<Long, Album>()
-        val projection = arrayOf(
-            MediaStore.Images.Media._ID,
-            MediaStore.Images.Media.BUCKET_ID,
-            MediaStore.Images.Media.BUCKET_DISPLAY_NAME
-        )
-        val sortOrder = MediaStore.Images.Media.DATE_ADDED + " DESC"
+        withContext(Dispatchers.IO) { // Mover a hilo IO para evitar bloquear UI
+            val albumMap = mutableMapOf<Long, Album>()
+            val projection = arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.BUCKET_ID,
+                MediaStore.Images.Media.BUCKET_DISPLAY_NAME
+            )
 
-        context.contentResolver.query(
-            collection, projection, null, null, sortOrder
-        )?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            val bucketIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID)
-            val bucketNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+            val selection: String? = null
 
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idColumn)
-                val bucketId = cursor.getLong(bucketIdColumn)
-                val bucketName = cursor.getString(bucketNameColumn) ?: "Desconocido"
-                val uri = ContentUris.withAppendedId(collection, id)
+            val sortOrder = MediaStore.Images.Media.DATE_ADDED + " DESC"
 
-                val album = albumMap[bucketId]
-                if (album == null) {
-                    albumMap[bucketId] = Album(bucketId, bucketName, uri, 1) // Usa la 1ra foto como thumbnail
-                } else {
-                    albumMap[bucketId] = album.copy(count = album.count + 1)
+            context.contentResolver.query(
+                collection, projection, selection, null, sortOrder
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val bucketIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID)
+                val bucketNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idColumn)
+                    val bucketId = cursor.getLong(bucketIdColumn)
+                    //Evitar albunes sin ID de bucket
+                    if (bucketId == 0L) continue
+
+                    val bucketName = cursor.getString(bucketNameColumn) ?: "Desconocido"
+                    val uri = ContentUris.withAppendedId(collection, id)
+
+                    //Usar la primera foto como thumbnail
+                    if (!albumMap.containsKey(bucketId)) {
+                        albumMap[bucketId] = Album(bucketId, bucketName, uri, 0)
+                    }
                 }
             }
+            albums = albumMap.values.toList()
         }
-        albums = albumMap.values.toList()
     }
 
-    // --- Cargar Imágenes (cuando se selecciona un álbum) ---
+    //Cargar imagenes (se necesita migrar a layout)
     LaunchedEffect(selectedAlbumId) {
         if (selectedAlbumId == null) {
-            images = emptyList() // Limpiar imágenes si volvemos a álbumes
+            images = emptyList()
             return@LaunchedEffect
         }
+        withContext(Dispatchers.IO) { // Mover a hilo IO
+            val imageList = mutableListOf<Uri>()
+            val projection = arrayOf(MediaStore.Images.Media._ID)
+            val selection = "${MediaStore.Images.Media.BUCKET_ID} = ?"
+            val selectionArgs = arrayOf(selectedAlbumId.toString())
+            val sortOrder = MediaStore.Images.Media.DATE_ADDED + " DESC"
 
-        val imageList = mutableListOf<Uri>()
-        val projection = arrayOf(MediaStore.Images.Media._ID)
-        val selection = "${MediaStore.Images.Media.BUCKET_ID} = ?"
-        val selectionArgs = arrayOf(selectedAlbumId.toString())
-        val sortOrder = MediaStore.Images.Media.DATE_ADDED + " DESC"
-
-        context.contentResolver.query(
-            collection, projection, selection, selectionArgs, sortOrder
-        )?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idColumn)
-                val uri = ContentUris.withAppendedId(collection, id)
-                imageList.add(uri)
+            context.contentResolver.query(
+                collection, projection, selection, selectionArgs, sortOrder
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idColumn)
+                    val uri = ContentUris.withAppendedId(collection, id)
+                    imageList.add(uri)
+                }
             }
+            images = imageList
         }
-        images = imageList
+    }
+
+    BackHandler(enabled = selectedAlbumId != null) {
+        selectedAlbumId = null
     }
 
     Scaffold(
@@ -110,8 +122,8 @@ fun GaleriaScreen(onImageClick: (Uri) -> Unit) {
                 },
                 navigationIcon = {
                     if (selectedAlbumId != null) {
-                        IconButton(onClick = { selectedAlbumId = null }) { // Botón para volver a álbumes
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Volver")
+                        IconButton(onClick = { selectedAlbumId = null }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                         }
                     }
                 }
@@ -119,24 +131,28 @@ fun GaleriaScreen(onImageClick: (Uri) -> Unit) {
         }
     ) { padding ->
         if (selectedAlbumId == null) {
-            // --- Mostrar Álbumes ---
+            //Mostrar Álbumes
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(150.dp),
-                modifier = Modifier.padding(padding),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
                 contentPadding = PaddingValues(4.dp)
             ) {
-                items(albums) { album ->
+                items(albums, key = { it.id }) { album ->
                     AlbumItem(album = album, onClick = { selectedAlbumId = album.id })
                 }
             }
         } else {
-            // --- Mostrar Imágenes ---
+            //Mostrar Imágenes
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(120.dp),
-                modifier = Modifier.padding(padding),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
                 contentPadding = PaddingValues(4.dp)
             ) {
-                items(images) { uri ->
+                items(images, key = { it.toString() }) { uri ->
                     Image(
                         painter = rememberAsyncImagePainter(uri),
                         contentDescription = null,
@@ -153,7 +169,6 @@ fun GaleriaScreen(onImageClick: (Uri) -> Unit) {
     }
 }
 
-// --- Composable para el item del Álbum ---
 @Composable
 fun AlbumItem(album: Album, onClick: () -> Unit) {
     Card(
@@ -176,11 +191,6 @@ fun AlbumItem(album: Album, onClick: () -> Unit) {
                 text = album.name,
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.padding(8.dp)
-            )
-            Text(
-                text = "${album.count} fotos",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
             )
         }
     }
