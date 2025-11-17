@@ -7,15 +7,18 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +54,10 @@ fun VisorScreen(
     val bottomSheetState = rememberModalBottomSheetState()
     var showInfoSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope() // Para el bottom sheet
+
+    // --- NUEVOS ESTADOS PARA EL ZOOM Y PANEO ---
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
 
     LaunchedEffect(uri) {
         withContext(Dispatchers.IO) {
@@ -109,7 +116,10 @@ fun VisorScreen(
         }
     }
 
-    //Navegacion por gestos (SE NECESITAN CAMBIOS)
+    // --- MANEJO DE GESTOS "ATRÁS" MODIFICADO ---
+    val isZoomedOrPanned = scale != 1f || offset != Offset.Zero
+
+    // 1. Prioridad: Ocultar el Bottom Sheet
     BackHandler(enabled = bottomSheetState.isVisible) {
         scope.launch { bottomSheetState.hide() }.invokeOnCompletion {
             if (!bottomSheetState.isVisible) {
@@ -117,23 +127,42 @@ fun VisorScreen(
             }
         }
     }
-    BackHandler(enabled = !bottomSheetState.isVisible && !isLoading) {
+
+    // 2. Prioridad: Resetear el zoom si la imagen está zoomeada o paneada
+    BackHandler(enabled = isZoomedOrPanned && !bottomSheetState.isVisible && !isLoading) {
+        // Reseteamos el estado
+        scale = 1f
+        offset = Offset.Zero
+    }
+
+    // 3. Prioridad: Salir de la pantalla (solo si no hay nada abierto o zoomeado)
+    BackHandler(enabled = !isZoomedOrPanned && !bottomSheetState.isVisible && !isLoading) {
         onBack()
     }
+    // --- FIN DE LA MODIFICACIÓN DE GESTOS "ATRÁS" ---
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Mejorar Imagen") },
                 navigationIcon = {
-                    IconButton(onClick = { onBack() }) {
+                    IconButton(onClick = {
+                        // --- MODIFICADO ---
+                        // Si está zoomeado, el botón de atrás resetea el zoom
+                        if (isZoomedOrPanned) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            onBack()
+                        }
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver")
                     }
                 }
             )
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-        //Posicionamiento de botones
+        //Posicionamiento de botones (sin cambios)
         floatingActionButton = {
             Row(
                 modifier = Modifier
@@ -185,16 +214,41 @@ fun VisorScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .padding(bottom = 100.dp)
+                    // --- NUEVO: AÑADIMOS EL MODIFICADOR PARA DETECTAR GESTOS ---
+                    .pointerInput(Unit) {
+                        detectTransformGestures { centroid, pan, zoom, rotation ->
+                            scale *= zoom
+                            // Limitamos la escala para que no sea muy pequeña o muy grande
+                            scale = scale.coerceIn(0.5f, 5f)
+
+                            if (scale > 1f) {
+                                // Si hay zoom, permitimos el paneo (arrastrar)
+                                offset += pan
+                            } else {
+                                // Si la escala vuelve a ser 1f o menos, reseteamos todo
+                                scale = 1f
+                                offset = Offset.Zero
+                            }
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 originalBitmap?.let {
                     Image(
                         bitmap = it.asImageBitmap(),
                         contentDescription = "Imagen original",
-                        //Centrado y ajustado de imagen (SE NECESITAN CAMBIOS)
-                        modifier = Modifier.fillMaxWidth(), //ancho
-                        contentScale = ContentScale.Fit //altura
+                        // --- MODIFICADO: AÑADIMOS graphicsLayer PARA APLICAR EL ZOOM/PANEO ---
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offset.x,
+                                translationY = offset.y
+                            ),
+                        contentScale = ContentScale.Fit // El ContentScale se mantiene
                     )
                 }
             }

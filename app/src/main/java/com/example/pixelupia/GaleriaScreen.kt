@@ -118,7 +118,7 @@ fun GaleriaScreen(onImageClick: (Uri) -> Unit) {
         topBar = {
             TopAppBar(
                 title = {
-                    Text(if (selectedAlbumId == null) "Galería de Álbumes" else "Fotos")
+                    Text(if (selectedAlbumId == null) "PixelUp IA" else "Fotos")
                 },
                 navigationIcon = {
                     if (selectedAlbumId != null) {

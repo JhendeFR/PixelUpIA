@@ -18,12 +18,12 @@ import kotlin.math.min
 
 class EsrganProcessor(context: Context, useGPU: Boolean = false) {
 
-    private val TILE_SIZE = 50 // Tamaño del tile de entrada
+    private val TILE_SIZE = 50 // Tamaño del title de entrada
     private val SCALE = 4
     private val CHANNELS = 3
     private val TILE_INPUT_SIZE = TILE_SIZE * TILE_SIZE
     private val TILE_OUTPUT_SIZE = (TILE_SIZE * SCALE) * (TILE_SIZE * SCALE)
-    private val BYTES_PER_FLOAT = 4 // FLOAT32
+    private val BYTES_PER_FLOAT = 4 // FLOAT32 entonces 30000 bytes
 
     private val inputBuffer: ByteBuffer
     private val outputBuffer: ByteBuffer
@@ -101,7 +101,7 @@ class EsrganProcessor(context: Context, useGPU: Boolean = false) {
                     inputBuffer.putFloat((pixel and 0xFF).toFloat())          // B
                 }
 
-                // 3. Ejecutar Inferencia
+                // 3. Ejecutar Inferencia RRDBNet
                 outputBuffer.rewind()
                 interpreter.run(inputBuffer, outputBuffer)
 

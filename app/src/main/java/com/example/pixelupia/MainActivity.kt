@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
+        //Inicializar el ESRGAN con gpu
         processor = EsrganProcessor(this, useGPU = false)
 
         val requestPermission = registerForActivityResult(
