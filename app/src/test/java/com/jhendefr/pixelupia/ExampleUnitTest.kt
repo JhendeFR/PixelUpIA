@@ -1,4 +1,4 @@
-package com.example.pixelupia
+package com.jhendefr.pixelupia
 
 import org.junit.Test
 
