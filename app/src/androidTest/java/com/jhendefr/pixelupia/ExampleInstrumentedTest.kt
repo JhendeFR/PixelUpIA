@@ -1,4 +1,4 @@
-package com.example.pixelupia
+package com.jhendefr.pixelupia
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4

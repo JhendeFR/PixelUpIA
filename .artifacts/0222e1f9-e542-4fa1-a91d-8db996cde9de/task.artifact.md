@@ -1,0 +1,5 @@
+- [ ] Actualizar `libs.versions.toml` con TensorFlow Lite y Coil
+- [ ] Refactorizar `app/build.gradle.kts` para usar el Version Catalog
+- [ ] Eliminar duplicidad de la BOM de Compose en `app/build.gradle.kts`
+- [ ] Corregir la coma final en `MediaStoreLocalDataSource.kt`
+- [ ] Sincronizar Gradle y verificar resultados

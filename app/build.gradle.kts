@@ -5,13 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.pixelupia"
-    compileSdk {
-        version = release(36)
-    }
+    namespace = "com.jhendefr.pixelupia"
+    compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.example.pixelupia"
+        applicationId = "com.jhendefr.pixelupia"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -25,46 +23,62 @@ android {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
         }
     }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
+
     buildFeatures {
         compose = true
     }
-    aaptOptions {
+
+    androidResources {
         noCompress += "tflite"
     }
 }
 
-dependencies {
-    //TensorFlow Lite dependencies
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.3")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
 
-    // Coil para cargar imágenes en Compose
-    implementation("io.coil-kt:coil-compose:2.5.0")
+dependencies {
+    // TensorFlow Lite
+    implementation(libs.tensorflow.lite)
+    implementation(libs.tensorflow.lite.gpu)
+    implementation(libs.tensorflow.lite.support)
+
+    // Coil
+    implementation(libs.coil.compose)
+
+    // Lifecycle Compose
+    implementation("androidx.lifecycle:lifecycle-runtime-compose")
+
+    // AndroidX & Compose
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
+
+    // BOM
+    val composeBom = platform(libs.androidx.compose.bom)
+    implementation(composeBom)
+    androidTestImplementation(composeBom)
+
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+
+    // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
