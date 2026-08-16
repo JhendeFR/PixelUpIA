@@ -1,16 +1,10 @@
 package com.jhendefr.pixelupia.domain.usecase
 
 import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.domain.model.SortOrder
 import com.jhendefr.pixelupia.domain.repository.MediaRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-
-enum class SortOrder {
-    DATE_DESC,
-    DATE_ASC,
-    NAME_ASC,
-    SIZE_DESC
-}
 
 class GetPhotosUseCase(private val repository: MediaRepository) {
     operator fun invoke(sortOrder: SortOrder = SortOrder.DATE_DESC): Flow<List<Photo>> {
@@ -19,7 +13,9 @@ class GetPhotosUseCase(private val repository: MediaRepository) {
                 SortOrder.DATE_DESC -> photos.sortedByDescending { it.dateTaken }
                 SortOrder.DATE_ASC -> photos.sortedBy { it.dateTaken }
                 SortOrder.NAME_ASC -> photos.sortedBy { it.name.lowercase() }
+                SortOrder.NAME_DESC -> photos.sortedByDescending { it.name.lowercase() }
                 SortOrder.SIZE_DESC -> photos.sortedByDescending { it.size }
+                SortOrder.SIZE_ASC -> photos.sortedBy { it.size }
             }
         }
     }
