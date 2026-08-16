@@ -34,6 +34,21 @@ class GalleryViewModel(
                 _uiState.update { it.copy(selectedTab = event.tab) }
             }
             GalleryEvent.Refresh -> loadData()
+            is GalleryEvent.SelectAlbum -> {
+                _uiState.update { it.copy(selectedAlbumName = event.albumName) }
+            }
+            is GalleryEvent.TogglePhotoSelection -> {
+                val currentSelection = _uiState.value.selectedPhotoIds.toMutableSet()
+                if (currentSelection.contains(event.photoId)) {
+                    currentSelection.remove(event.photoId)
+                } else {
+                    currentSelection.add(event.photoId)
+                }
+                _uiState.update { it.copy(selectedPhotoIds = currentSelection) }
+            }
+            GalleryEvent.ClearSelection -> {
+                _uiState.update { it.copy(selectedPhotoIds = emptySet()) }
+            }
         }
     }
 

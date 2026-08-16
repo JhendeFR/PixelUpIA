@@ -27,6 +27,7 @@ import com.jhendefr.pixelupia.ui.gallery.GalleryScreen
 import com.jhendefr.pixelupia.ui.gallery.GalleryViewModel
 import com.jhendefr.pixelupia.ui.theme.PixelUpIATheme
 import com.jhendefr.pixelupia.ui.viewer.ViewerScreen
+import com.jhendefr.pixelupia.ui.viewer.ViewerViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,7 +35,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val dataSource = MediaStoreLocalDataSource(applicationContext)
-        val repository = MediaRepositoryImpl(dataSource)
+        val repository = MediaRepositoryImpl(applicationContext, dataSource)
         val getPhotosUseCase = GetPhotosUseCase(repository)
         val getAlbumsUseCase = GetAlbumsUseCase(repository)
 
@@ -59,13 +60,12 @@ class MainActivity : ComponentActivity() {
                         navController = navController,
                         startDestination = "gallery"
                     ) {
-                        // Pantalla 1: Cuadrícula de la Galería
+                        // 1. Galería
                         composable("gallery") {
                             GalleryScreen(
                                 viewModel = galleryViewModel,
                                 onPhotoClick = { selectedPhoto ->
-                                    val encodedUri = Uri.encode(selectedPhoto.uri.toString())
-                                    navController.navigate("viewer/$encodedUri")
+                                    navController.navigate("viewer/${selectedPhoto.id}")
                                 },
                                 onAlbumClick = { album ->
                                     navController.navigate("album_detail/${Uri.encode(album.name)}")
@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Pantalla 2: Detalle de Álbum
+                        // 2. Detalle del Álbum
                         composable(
                             route = "album_detail/{albumName}",
                             arguments = listOf(navArgument("albumName") { type = NavType.StringType })
@@ -93,22 +93,35 @@ class MainActivity : ComponentActivity() {
                                 viewModel = detailViewModel,
                                 onBackClick = { navController.popBackStack() },
                                 onPhotoClick = { photo ->
-                                    val encodedUri = Uri.encode(photo.uri.toString())
-                                    navController.navigate("viewer/$encodedUri")
+                                    // Pasamos el ID y el nombre del álbum
+                                    navController.navigate("viewer/${photo.id}?albumName=${Uri.encode(albumName)}")
                                 }
                             )
                         }
 
-                        // Pantalla 3: Visor de Fotos con Zoom
+                        // 3. VISOR ACTUALIZADO
                         composable(
-                            route = "viewer/{photoUri}",
-                            arguments = listOf(navArgument("photoUri") { type = NavType.StringType })
+                            route = "viewer/{photoId}?albumName={albumName}",
+                            arguments = listOf(
+                                navArgument("photoId") { type = NavType.LongType },
+                                navArgument("albumName") { type = NavType.StringType; nullable = true }
+                            )
                         ) { backStackEntry ->
-                            val uriString = backStackEntry.arguments?.getString("photoUri") ?: ""
-                            val photoUri = Uri.parse(Uri.decode(uriString))
+                            val photoId = backStackEntry.arguments?.getLong("photoId") ?: 0L
+                            val rawAlbumName = backStackEntry.arguments?.getString("albumName")
+                            val albumName = if (rawAlbumName != null) Uri.decode(rawAlbumName) else null
+
+                            val viewerViewModel: ViewerViewModel = viewModel(
+                                factory = object : ViewModelProvider.Factory {
+                                    @Suppress("UNCHECKED_CAST")
+                                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                                        return ViewerViewModel(photoId, albumName, getPhotosUseCase) as T
+                                    }
+                                }
+                            )
 
                             ViewerScreen(
-                                photoUri = photoUri,
+                                viewModel = viewerViewModel,
                                 onBackClick = { navController.popBackStack() }
                             )
                         }
