@@ -4,10 +4,16 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
@@ -15,14 +21,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.vector.ImageVector
 import coil.compose.AsyncImage
 import com.jhendefr.pixelupia.domain.model.Album
 import com.jhendefr.pixelupia.domain.model.Photo
@@ -61,84 +67,157 @@ fun GalleryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "PixelUpIA",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            // 1. TOP BAR DINÁMICA (Modo Normal vs Modo Selección)
+            if (uiState.isSelectionMode) {
+                TopAppBar(
+                    title = { Text("${uiState.selectedPhotoIds.size} seleccionadas") },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.onEvent(GalleryEvent.ClearSelection) }) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancelar selección")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onSecondaryContainer
                     )
-                },
-                actions = {
-                    IconButton(onClick = { showSortMenu = true }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = "Ordenar"
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "PixelUpIA",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    actions = {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Sort,
+                                contentDescription = "Ordenar"
+                            )
+                        }
+                        SortMenu(
+                            expanded = showSortMenu,
+                            currentOrder = uiState.sortOrder,
+                            onDismiss = { showSortMenu = false },
+                            onSortChange = { viewModel.onEvent(GalleryEvent.ChangeSortOrder(it)) }
                         )
                     }
-                    SortMenu(
-                        expanded = showSortMenu,
-                        currentOrder = uiState.sortOrder,
-                        onDismiss = { showSortMenu = false },
-                        onSortChange = { viewModel.onEvent(GalleryEvent.ChangeSortOrder(it)) }
-                    )
-                }
-            )
+                )
+            }
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            if (!hasPermission) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Se requiere permiso para ver la galería 🖼️")
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(onClick = { launcher.launch(permission) }) {
-                            Text("Conceder Permiso")
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                if (!hasPermission) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Se requiere permiso para ver la galería 🖼️")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(onClick = { launcher.launch(permission) }) {
+                                Text("Conceder Permiso")
+                            }
+                        }
+                    }
+                } else if (uiState.isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (uiState.errorMessage != null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = uiState.errorMessage ?: "Error desconocido",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                } else {
+                    // Pestañas de Navegación: Fotos y Álbumes
+                    TabRow(selectedTabIndex = uiState.selectedTab.ordinal) {
+                        Tab(
+                            selected = uiState.selectedTab == GalleryTab.PHOTOS,
+                            onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.PHOTOS)) },
+                            text = { Text("Fotos (${uiState.photos.size})") }
+                        )
+                        Tab(
+                            selected = uiState.selectedTab == GalleryTab.ALBUMS,
+                            onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.ALBUMS)) },
+                            text = { Text("Álbumes (${uiState.albums.size})") }
+                        )
+                    }
+
+                    // Contenido según la pestaña seleccionada
+                    when (uiState.selectedTab) {
+                        GalleryTab.PHOTOS -> {
+                            PhotoGrid(
+                                photos = uiState.photos,
+                                selectedIds = uiState.selectedPhotoIds,
+                                isSelectionMode = uiState.isSelectionMode,
+                                onPhotoClick = onPhotoClick,
+                                onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
+                            )
+                        }
+                        GalleryTab.ALBUMS -> {
+                            AlbumGrid(
+                                albums = uiState.albums,
+                                onAlbumClick = onAlbumClick
+                            )
                         }
                     }
                 }
-            } else if (uiState.isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else if (uiState.errorMessage != null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = uiState.errorMessage ?: "Error desconocido",
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            } else {
-                // Pestañas de Navegación: Fotos y Álbumes
-                TabRow(selectedTabIndex = uiState.selectedTab.ordinal) {
-                    Tab(
-                        selected = uiState.selectedTab == GalleryTab.PHOTOS,
-                        onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.PHOTOS)) },
-                        text = { Text("Fotos (${uiState.photos.size})") }
-                    )
-                    Tab(
-                        selected = uiState.selectedTab == GalleryTab.ALBUMS,
-                        onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.ALBUMS)) },
-                        text = { Text("Álbumes (${uiState.albums.size})") }
-                    )
-                }
+            }
 
-                // Contenido según la pestaña seleccionada
-                when (uiState.selectedTab) {
-                    GalleryTab.PHOTOS -> {
-                        PhotoGrid(
-                            photos = uiState.photos,
-                            onPhotoClick = onPhotoClick
+            // 2. BARRA INFERIOR TIPO PÍLDORA (MATERIAL EXPRESSIVE)
+            AnimatedVisibility(
+                visible = uiState.isSelectionMode,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Mover
+                    IconButton(onClick = { /* Implementaremos mover */ }) {
+                        Icon(
+                            Icons.Default.DriveFileMove,
+                            "Mover",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
-                    GalleryTab.ALBUMS -> {
-                        AlbumGrid(
-                            albums = uiState.albums,
-                            onAlbumClick = onAlbumClick
+                    // Copiar
+                    IconButton(onClick = { /* Implementaremos copiar */ }) {
+                        Icon(
+                            Icons.Default.FileCopy,
+                            "Copiar",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    // Compartir
+                    IconButton(onClick = { /* Implementaremos compartir */ }) {
+                        Icon(
+                            Icons.Default.Share,
+                            "Compartir",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    // Eliminar (Resaltado en color de error)
+                    IconButton(onClick = { /* Implementaremos eliminar */ }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            "Eliminar",
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                 }
@@ -147,10 +226,14 @@ fun GalleryScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PhotoGrid(
     photos: List<Photo>,
-    onPhotoClick: (Photo) -> Unit
+    selectedIds: Set<Long> = emptySet(),
+    isSelectionMode: Boolean = false,
+    onPhotoClick: (Photo) -> Unit,
+    onToggleSelection: (Long) -> Unit = {}
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 110.dp),
@@ -158,11 +241,20 @@ fun PhotoGrid(
         modifier = Modifier.fillMaxSize()
     ) {
         items(photos, key = { it.id }) { photo ->
-            Card(
+            val isSelected = selectedIds.contains(photo.id)
+
+            Box(
                 modifier = Modifier
                     .padding(4.dp)
-                    .aspectRatio(1f),
-                onClick = { onPhotoClick(photo) }
+                    .aspectRatio(1f)
+                    .clip(MaterialTheme.shapes.medium)
+                    .combinedClickable(
+                        onClick = {
+                            if (isSelectionMode) onToggleSelection(photo.id)
+                            else onPhotoClick(photo)
+                        },
+                        onLongClick = { onToggleSelection(photo.id) }
+                    )
             ) {
                 AsyncImage(
                     model = photo.uri,
@@ -170,6 +262,23 @@ fun PhotoGrid(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Overlay visual cuando la imagen está seleccionada
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.4f))
+                    )
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Seleccionada",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                    )
+                }
             }
         }
     }

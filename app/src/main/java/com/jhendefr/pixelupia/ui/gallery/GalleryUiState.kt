@@ -14,13 +14,22 @@ data class GalleryUiState(
     val photos: List<Photo> = emptyList(),
     val albums: List<Album> = emptyList(),
     val selectedTab: GalleryTab = GalleryTab.PHOTOS,
+    val selectedAlbumName: String? = null,
     val sortOrder: SortOrder = SortOrder.DATE_DESC,
-    val errorMessage: String? = null
-)
+    val errorMessage: String? = null,
+    // Nuevas variables para la Selección Múltiple
+    val selectedPhotoIds: Set<Long> = emptySet()
+) {
+    val isSelectionMode: Boolean get() = selectedPhotoIds.isNotEmpty()
+}
 
 sealed interface GalleryEvent {
     data class ChangeSortOrder(val newOrder: SortOrder) : GalleryEvent
     data class SelectTab(val tab: GalleryTab) : GalleryEvent
+    data class SelectAlbum(val albumName: String?) : GalleryEvent
+    // Nuevos eventos
+    data class TogglePhotoSelection(val photoId: Long) : GalleryEvent
+    object ClearSelection : GalleryEvent
     object Refresh : GalleryEvent
 }
 /**
