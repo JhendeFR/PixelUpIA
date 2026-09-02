@@ -2,8 +2,8 @@ package com.jhendefr.pixelupia.ui.gallery
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jhendefr.pixelupia.domain.usecase.GetAlbumsUseCase
-import com.jhendefr.pixelupia.domain.usecase.GetPhotosUseCase
+import com.jhendefr.pixelupia.domain.model.MediaOperationResult
+import com.jhendefr.pixelupia.domain.usecase.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,7 +14,12 @@ import kotlinx.coroutines.launch
 
 class GalleryViewModel(
     private val getPhotosUseCase: GetPhotosUseCase,
-    private val getAlbumsUseCase: GetAlbumsUseCase
+    private val getAlbumsUseCase: GetAlbumsUseCase,
+    private val deletePhotosUseCase: DeletePhotosUseCase,
+    private val movePhotosUseCase: MovePhotosUseCase,
+    private val copyPhotosUseCase: CopyPhotosUseCase,
+    private val getFavoritePhotoIdsUseCase: GetFavoritePhotoIdsUseCase,
+    private val toggleFavoriteUseCase: ToggleFavoriteUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GalleryUiState())
@@ -33,7 +38,6 @@ class GalleryViewModel(
             is GalleryEvent.SelectTab -> {
                 _uiState.update { it.copy(selectedTab = event.tab) }
             }
-            GalleryEvent.Refresh -> loadData()
             is GalleryEvent.SelectAlbum -> {
                 _uiState.update { it.copy(selectedAlbumName = event.albumName) }
             }
@@ -46,8 +50,174 @@ class GalleryViewModel(
                 }
                 _uiState.update { it.copy(selectedPhotoIds = currentSelection) }
             }
+            is GalleryEvent.ToggleFavorite -> {
+                val isFav = toggleFavoriteUseCase(event.photoId)
+                _uiState.update {
+                    it.copy(userMessage = if (isFav) "Añadida a favoritos" else "Eliminada de favoritos")
+                }
+            }
+            GalleryEvent.SelectAll -> {
+                val allIds = when (_uiState.value.selectedTab) {
+                    GalleryTab.PHOTOS -> _uiState.value.photos.map { it.id }.toSet()
+                    GalleryTab.FAVORITES -> _uiState.value.favoritePhotos.map { it.id }.toSet()
+                    GalleryTab.ALBUMS -> emptySet()
+                }
+                _uiState.update { it.copy(selectedPhotoIds = allIds) }
+            }
             GalleryEvent.ClearSelection -> {
                 _uiState.update { it.copy(selectedPhotoIds = emptySet()) }
+            }
+            GalleryEvent.Refresh -> loadData()
+
+            // Eliminacion
+            GalleryEvent.RequestDeleteSelected -> {
+                if (_uiState.value.selectedPhotoIds.isNotEmpty()) {
+                    _uiState.update { it.copy(showDeleteConfirm = true) }
+                }
+            }
+            GalleryEvent.DismissDeleteDialog -> {
+                _uiState.update { it.copy(showDeleteConfirm = false) }
+            }
+            GalleryEvent.ConfirmDeleteSelected -> {
+                val photosToDelete = _uiState.value.selectedPhotos
+                _uiState.update { it.copy(showDeleteConfirm = false, isProcessingAction = true) }
+                viewModelScope.launch {
+                    when (val result = deletePhotosUseCase(photosToDelete)) {
+                        is MediaOperationResult.Success -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    selectedPhotoIds = emptySet(),
+                                    userMessage = "${photosToDelete.size} fotos eliminadas"
+                                )
+                            }
+                            loadData()
+                        }
+                        is MediaOperationResult.RequiresIntentSender -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    pendingIntentSender = result.intentSender
+                                )
+                            }
+                        }
+                        is MediaOperationResult.Failure -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    errorMessage = result.message
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Mover
+            GalleryEvent.RequestMoveSelected -> {
+                if (_uiState.value.selectedPhotoIds.isNotEmpty()) {
+                    _uiState.update { it.copy(showFolderPickerForMove = true) }
+                }
+            }
+            GalleryEvent.DismissMoveDialog -> {
+                _uiState.update { it.copy(showFolderPickerForMove = false) }
+            }
+            is GalleryEvent.ConfirmMoveSelected -> {
+                val photosToMove = _uiState.value.selectedPhotos
+                _uiState.update { it.copy(showFolderPickerForMove = false, isProcessingAction = true) }
+                viewModelScope.launch {
+                    when (val result = movePhotosUseCase(photosToMove, event.targetFolder)) {
+                        is MediaOperationResult.Success -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    selectedPhotoIds = emptySet(),
+                                    userMessage = "${photosToMove.size} fotos movidas a ${event.targetFolder}"
+                                )
+                            }
+                            loadData()
+                        }
+                        is MediaOperationResult.RequiresIntentSender -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    pendingIntentSender = result.intentSender
+                                )
+                            }
+                        }
+                        is MediaOperationResult.Failure -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    errorMessage = result.message
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Copiar
+            GalleryEvent.RequestCopySelected -> {
+                if (_uiState.value.selectedPhotoIds.isNotEmpty()) {
+                    _uiState.update { it.copy(showFolderPickerForCopy = true) }
+                }
+            }
+            GalleryEvent.DismissCopyDialog -> {
+                _uiState.update { it.copy(showFolderPickerForCopy = false) }
+            }
+            is GalleryEvent.ConfirmCopySelected -> {
+                val photosToCopy = _uiState.value.selectedPhotos
+                _uiState.update { it.copy(showFolderPickerForCopy = false, isProcessingAction = true) }
+                viewModelScope.launch {
+                    when (val result = copyPhotosUseCase(photosToCopy, event.targetFolder)) {
+                        is MediaOperationResult.Success -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    selectedPhotoIds = emptySet(),
+                                    userMessage = "${photosToCopy.size} fotos copiadas a ${event.targetFolder}"
+                                )
+                            }
+                            loadData()
+                        }
+                        is MediaOperationResult.RequiresIntentSender -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    pendingIntentSender = result.intentSender
+                                )
+                            }
+                        }
+                        is MediaOperationResult.Failure -> {
+                            _uiState.update {
+                                it.copy(
+                                    isProcessingAction = false,
+                                    errorMessage = result.message
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            GalleryEvent.OnIntentSenderCompleted -> {
+                _uiState.update {
+                    it.copy(
+                        pendingIntentSender = null,
+                        selectedPhotoIds = emptySet(),
+                        userMessage = "Operacion completada con exito"
+                    )
+                }
+                loadData()
+            }
+            GalleryEvent.OnIntentSenderDismissed -> {
+                _uiState.update {
+                    it.copy(pendingIntentSender = null)
+                }
+            }
+            GalleryEvent.ClearUserMessage -> {
+                _uiState.update { it.copy(userMessage = null, errorMessage = null) }
             }
         }
     }
@@ -58,35 +228,26 @@ class GalleryViewModel(
 
             combine(
                 getPhotosUseCase(_uiState.value.sortOrder),
-                getAlbumsUseCase(_uiState.value.sortOrder)
-            ) { photos, albums ->
-                Pair(photos, albums)
+                getAlbumsUseCase(_uiState.value.sortOrder),
+                getFavoritePhotoIdsUseCase()
+            ) { photos, albums, favorites ->
+                Triple(photos, albums, favorites)
             }
                 .catch { error ->
                     _uiState.update {
                         it.copy(isLoading = false, errorMessage = error.message)
                     }
                 }
-                .collect { (photos, albums) ->
+                .collect { (photos, albums, favorites) ->
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             photos = photos,
-                            albums = albums
+                            albums = albums,
+                            favoritePhotoIds = favorites
                         )
                     }
                 }
         }
     }
 }
-/**
- * ViewModel para la pantalla de galería de fotos y álbumes.
- *
- * - Mantiene e expone el estado de la UI mediante StateFlow (GalleryUiState).
- * - Gestiona eventos de usuario como cambiar orden, seleccionar pestaña o refrescar.
- * - Combina GetPhotosUseCase y GetAlbumsUseCase para obtener fotos y álbumes ordenados.
- * - Controla estados de carga y error.
- *
- * Pertenece a la capa de presentación y coordina la lógica entre
- * la UI y la capa de dominio.
- **/

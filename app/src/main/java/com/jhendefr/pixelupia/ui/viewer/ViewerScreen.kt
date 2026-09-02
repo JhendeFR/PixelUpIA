@@ -1,7 +1,12 @@
 package com.jhendefr.pixelupia.ui.viewer
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
@@ -10,23 +15,31 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.ui.common.ConfirmDeleteDialog
+import com.jhendefr.pixelupia.ui.common.FolderPickerDialog
+import com.jhendefr.pixelupia.ui.gallery.sharePhotos
+import com.jhendefr.pixelupia.ui.theme.PixelUpIAMotion
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -39,49 +52,124 @@ fun ViewerScreen(
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     var showUI by remember { mutableStateOf(true) }
     var showInfoSheet by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
 
+    val intentSenderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            viewModel.onEvent(ViewerEvent.OnIntentSenderCompleted)
+        } else {
+            viewModel.onEvent(ViewerEvent.OnIntentSenderDismissed)
+        }
+    }
+
+    LaunchedEffect(uiState.pendingIntentSender) {
+        uiState.pendingIntentSender?.let { sender ->
+            intentSenderLauncher.launch(
+                IntentSenderRequest.Builder(sender).build()
+            )
+        }
+    }
+
+    LaunchedEffect(uiState.isPhotoDeleted) {
+        if (uiState.isPhotoDeleted) {
+            onBackClick()
+        }
+    }
+
+    LaunchedEffect(uiState.userMessage) {
+        uiState.userMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.onEvent(ViewerEvent.ClearUserMessage)
+        }
+    }
+
     if (uiState.isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
         }
         return
     }
 
     if (uiState.photos.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No se encontraron fotos", color = Color.White)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No se encontraron fotos",
+                color = Color.White,
+                style = MaterialTheme.typography.bodyLarge
+            )
         }
         return
     }
 
     val pagerState = rememberPagerState(
-        initialPage = uiState.initialIndex,
+        initialPage = uiState.initialIndex.coerceIn(0, (uiState.photos.size - 1).coerceAtLeast(0)),
         pageCount = { uiState.photos.size }
     )
 
-    // Estado de scroll del Pager (se desactiva si hay zoom)
-    var isPagerEnabled by remember { mutableStateOf(true) }
+    val currentPhoto = uiState.photos.getOrNull(pagerState.currentPage) ?: uiState.photos.first()
 
-    // BottomSheet para los metadatos (Info)
+    // Dialogos de Gestion
+    if (uiState.showDeleteConfirm) {
+        ConfirmDeleteDialog(
+            count = 1,
+            onConfirm = { viewModel.onEvent(ViewerEvent.ConfirmDelete) },
+            onDismiss = { viewModel.onEvent(ViewerEvent.DismissDeleteDialog) }
+        )
+    }
+
+    if (uiState.showFolderPickerForMove) {
+        FolderPickerDialog(
+            title = "Mover foto",
+            existingFolders = uiState.existingFolders,
+            onFolderSelected = { folder -> viewModel.onEvent(ViewerEvent.ConfirmMove(folder)) },
+            onDismiss = { viewModel.onEvent(ViewerEvent.DismissMoveDialog) }
+        )
+    }
+
+    if (uiState.showFolderPickerForCopy) {
+        FolderPickerDialog(
+            title = "Copiar foto",
+            existingFolders = uiState.existingFolders,
+            onFolderSelected = { folder -> viewModel.onEvent(ViewerEvent.ConfirmCopy(folder)) },
+            onDismiss = { viewModel.onEvent(ViewerEvent.DismissCopyDialog) }
+        )
+    }
+
+    // BottomSheet para Metadatos con Superficie Tonal M3E
     if (showInfoSheet) {
-        val currentPhoto = uiState.photos[pagerState.currentPage]
         ModalBottomSheet(
             onDismissRequest = { showInfoSheet = false },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             PhotoMetadataPanel(photo = currentPhoto)
         }
     }
 
+    var isPagerEnabled by remember { mutableStateOf(true) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // 1. Pager Horizontal para deslizar entre imágenes (Ocupa toda la pantalla)
+        // Pager Horizontal de Fotos
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -93,27 +181,38 @@ fun ViewerScreen(
                 photo = photo,
                 onTap = { showUI = !showUI },
                 onSwipeUp = { showInfoSheet = true },
-                onZoomChanged = { isPagerEnabled = it <= 1f }
+                onZoomChanged = { isPagerEnabled = it <= 1.05f }
             )
         }
 
-        // 2. Top Bar como Overlay
+        // Top Bar como Overlay Tonal
         AnimatedVisibility(
             visible = showUI,
-            enter = fadeIn() + slideInVertically { -it },
-            exit = fadeOut() + slideOutVertically { -it },
+            enter = fadeIn(animationSpec = PixelUpIAMotion.effectsFloatSpring) +
+                    slideInVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { -it },
+            exit = fadeOut(animationSpec = PixelUpIAMotion.effectsFloatSpring) +
+                    slideOutVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { -it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            // Usamos Surface para darle el fondo semitransparente que antes daba el Scaffold
             Surface(
-                color = Color.Black.copy(alpha = 0.4f),
+                color = Color.Black.copy(alpha = 0.5f),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(modifier = Modifier.statusBarsPadding()) {
                     TopAppBar(
-                        title = { },
+                        title = {
+                            Text(
+                                text = currentPhoto.name,
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
                         navigationIcon = {
-                            IconButton(onClick = onBackClick) {
+                            IconButton(
+                                onClick = onBackClick,
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = "Regresar",
@@ -127,48 +226,133 @@ fun ViewerScreen(
             }
         }
 
-        // 3. Barra Inferior Estilo Píldora
+        // Barra Inferior Flotante Estilo Pildora M3 Expressive
         AnimatedVisibility(
             visible = showUI,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
+            enter = fadeIn(animationSpec = PixelUpIAMotion.effectsFloatSpring) +
+                    slideInVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { it },
+            exit = fadeOut(animationSpec = PixelUpIAMotion.effectsFloatSpring) +
+                    slideOutVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 32.dp)
                 .navigationBarsPadding()
         ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f),
+                tonalElevation = 6.dp,
+                shadowElevation = 8.dp
+            ) {
                 Row(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { /* Favorito */ }) {
-                        Icon(Icons.Default.FavoriteBorder, "Favorito", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // Favorito con Animacion de Rebote
+                    val isFavorite = uiState.favoritePhotoIds.contains(currentPhoto.id)
+                    val favScale by animateFloatAsState(
+                        targetValue = if (isFavorite) 1.2f else 1f,
+                        animationSpec = PixelUpIAMotion.spatialFloatSpring,
+                        label = "FavScale"
+                    )
+
+                    IconButton(
+                        onClick = { viewModel.onEvent(ViewerEvent.ToggleFavorite(currentPhoto.id)) },
+                        modifier = Modifier
+                            .scale(favScale)
+                            .minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = "Favorito",
+                            tint = if (isFavorite) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    IconButton(onClick = { /* Editar */ }) {
-                        Icon(Icons.Default.Edit, "Editar", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    // Compartir
+                    IconButton(
+                        onClick = { sharePhotos(context, listOf(currentPhoto)) },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = "Compartir",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    IconButton(onClick = { showInfoSheet = true }) {
-                        Icon(Icons.Default.Info, "Información", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    // Informacion
+                    IconButton(
+                        onClick = { showInfoSheet = true },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = "Informacion",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    IconButton(onClick = { /* Eliminar */ }) {
-                        Icon(Icons.Default.Delete, "Eliminar", tint = MaterialTheme.colorScheme.error)
+
+                    // Eliminar
+                    IconButton(
+                        onClick = { viewModel.onEvent(ViewerEvent.RequestDelete(currentPhoto)) },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Eliminar",
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
+
+                    // Mas Opciones (Mover / Copiar)
                     Box {
-                        IconButton(onClick = { showMoreMenu = true }) {
-                            Icon(Icons.Default.MoreVert, "Más", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        IconButton(
+                            onClick = { showMoreMenu = true },
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "Mas opciones",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
-                            DropdownMenuItem(text = { Text("Mover") }, onClick = { showMoreMenu = false })
-                            DropdownMenuItem(text = { Text("Copiar") }, onClick = { showMoreMenu = false })
-                            DropdownMenuItem(text = { Text("Compartir") }, onClick = { showMoreMenu = false })
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false },
+                            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Mover a carpeta") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    viewModel.onEvent(ViewerEvent.RequestMove(currentPhoto))
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Copiar a carpeta") },
+                                leadingIcon = { Icon(Icons.Default.FileCopy, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    viewModel.onEvent(ViewerEvent.RequestCopy(currentPhoto))
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            )
                         }
                     }
                 }
             }
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 96.dp)
+        )
     }
 }
 
@@ -196,9 +380,9 @@ fun ZoomableImage(
                         coroutineScope.launch {
                             val targetScale = if (scale.value > 1f) 1f else 3f
                             onZoomChanged(targetScale)
-                            launch { scale.animateTo(targetScale) }
-                            launch { offsetX.animateTo(0f) }
-                            launch { offsetY.animateTo(0f) }
+                            launch { scale.animateTo(targetScale, animationSpec = PixelUpIAMotion.spatialFloatSpring) }
+                            launch { offsetX.animateTo(0f, animationSpec = PixelUpIAMotion.spatialFloatSpring) }
+                            launch { offsetY.animateTo(0f, animationSpec = PixelUpIAMotion.spatialFloatSpring) }
                         }
                     }
                 )
@@ -212,8 +396,6 @@ fun ZoomableImage(
                         val zoom = event.calculateZoom()
                         val pan = event.calculatePan()
 
-                        // 1. Zoom/Pan: Solo consumimos si hay movimiento real
-                        // Esto permite que detectTapGestures vea los eventos de "tap"
                         if (pointers >= 2 || scale.value > 1.05f) {
                             if (zoom != 1f || pan != Offset.Zero) {
                                 event.changes.forEach { it.consume() }
@@ -237,9 +419,7 @@ fun ZoomableImage(
                                     }
                                 }
                             }
-                        }
-                        // 2. Swipe Up: Solo un dedo y escala 1
-                        else if (pointers == 1 && scale.value <= 1.05f) {
+                        } else if (pointers == 1 && scale.value <= 1.05f) {
                             val change = event.changes.first()
                             val dragY = change.position.y - change.previousPosition.y
                             val dragX = change.position.x - change.previousPosition.x
@@ -287,8 +467,12 @@ fun PhotoMetadataPanel(photo: Photo) {
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Detalles de la imagen", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        HorizontalDivider()
+        Text(
+            text = "Detalles de la imagen",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         MetadataRow(Icons.Default.Image, "Nombre", photo.name)
         MetadataRow(Icons.Default.DateRange, "Fecha", dateString)
         MetadataRow(Icons.Default.Folder, "Carpeta", photo.folderName)
@@ -299,12 +483,36 @@ fun PhotoMetadataPanel(photo: Photo) {
 
 @Composable
 fun MetadataRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
         Spacer(modifier = Modifier.width(16.dp))
         Column {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
