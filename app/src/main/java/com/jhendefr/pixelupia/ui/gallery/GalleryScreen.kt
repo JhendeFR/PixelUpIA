@@ -13,6 +13,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -183,27 +184,33 @@ fun GalleryScreen(
                     TopAppBar(
                         title = {
                             Text(
-                                text = "PixelUp IA",
+                                text = when (uiState.selectedTab) {
+                                    GalleryTab.PHOTOS -> "PixelUp IA"
+                                    GalleryTab.ALBUMS -> "Albumes"
+                                    GalleryTab.SMART_AI -> "SnapVault IA"
+                                },
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
                         },
                         actions = {
-                            IconButton(
-                                onClick = { showSortMenu = true },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Sort,
-                                    contentDescription = "Ordenar"
+                            if (uiState.selectedTab != GalleryTab.SMART_AI) {
+                                IconButton(
+                                    onClick = { showSortMenu = true },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Sort,
+                                        contentDescription = "Ordenar"
+                                    )
+                                }
+                                SortMenu(
+                                    expanded = showSortMenu,
+                                    currentOrder = uiState.sortOrder,
+                                    onDismiss = { showSortMenu = false },
+                                    onSortChange = { viewModel.onEvent(GalleryEvent.ChangeSortOrder(it)) }
                                 )
                             }
-                            SortMenu(
-                                expanded = showSortMenu,
-                                currentOrder = uiState.sortOrder,
-                                onDismiss = { showSortMenu = false },
-                                onSortChange = { viewModel.onEvent(GalleryEvent.ChangeSortOrder(it)) }
-                            )
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerLowest
@@ -303,44 +310,6 @@ fun GalleryScreen(
                         }
                     }
                 } else {
-                    // Selector de Pestañas con 3 Opciones (Fotos, Albumes, Favoritos)
-                    SingleChoiceSegmentedButtonRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        SegmentedButton(
-                            selected = uiState.selectedTab == GalleryTab.PHOTOS,
-                            onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.PHOTOS)) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                            icon = {
-                                SegmentedButtonDefaults.Icon(active = uiState.selectedTab == GalleryTab.PHOTOS)
-                            }
-                        ) {
-                            Text("Fotos (${uiState.photos.size})", fontWeight = FontWeight.Medium, maxLines = 1)
-                        }
-                        SegmentedButton(
-                            selected = uiState.selectedTab == GalleryTab.ALBUMS,
-                            onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.ALBUMS)) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                            icon = {
-                                SegmentedButtonDefaults.Icon(active = uiState.selectedTab == GalleryTab.ALBUMS)
-                            }
-                        ) {
-                            Text("Albumes (${uiState.albums.size})", fontWeight = FontWeight.Medium, maxLines = 1)
-                        }
-                        SegmentedButton(
-                            selected = uiState.selectedTab == GalleryTab.FAVORITES,
-                            onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.FAVORITES)) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                            icon = {
-                                SegmentedButtonDefaults.Icon(active = uiState.selectedTab == GalleryTab.FAVORITES)
-                            }
-                        ) {
-                            Text("Favoritos (${uiState.favoritePhotos.size})", fontWeight = FontWeight.Medium, maxLines = 1)
-                        }
-                    }
-
                     // Contenido segun la pestana seleccionada
                     when (uiState.selectedTab) {
                         GalleryTab.PHOTOS -> {
@@ -358,121 +327,184 @@ fun GalleryScreen(
                                 onAlbumClick = onAlbumClick
                             )
                         }
-                        GalleryTab.FAVORITES -> {
-                            if (uiState.favoritePhotos.isEmpty()) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.padding(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.FavoriteBorder,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(48.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            text = "No tienes fotos favoritas",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Toca el icono de corazon en el visor para guardar tus fotos preferidas.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            } else {
-                                PhotoGrid(
-                                    photos = uiState.favoritePhotos,
-                                    selectedIds = uiState.selectedPhotoIds,
-                                    isSelectionMode = uiState.isSelectionMode,
-                                    onPhotoClick = onPhotoClick,
-                                    onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
-                                )
-                            }
+                        GalleryTab.SMART_AI -> {
+                            SmartGalleryView(
+                                searchQuery = uiState.smartSearchQuery,
+                                smartPhotos = uiState.smartPhotos,
+                                allPhotos = uiState.photos,
+                                indexedFolders = uiState.indexedFolders,
+                                selectedIndexedFolder = uiState.selectedIndexedFolderName,
+                                isBatchIndexing = uiState.isBatchIndexing,
+                                batchIndexingProgress = uiState.batchIndexingProgress,
+                                selectedIds = uiState.selectedPhotoIds,
+                                isSelectionMode = uiState.isSelectionMode,
+                                onQueryChange = { viewModel.onEvent(GalleryEvent.UpdateSmartSearchQuery(it)) },
+                                onSelectFolder = { viewModel.onEvent(GalleryEvent.SelectIndexedFolder(it)) },
+                                onTriggerBatchIndex = { viewModel.onEvent(GalleryEvent.TriggerBatchIndexFolder(it)) },
+                                onPhotoClick = onPhotoClick,
+                                onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
+                            )
                         }
                     }
                 }
             }
 
-            // BARRA INFERIOR FLOTANTE TIPO PILDORA (MATERIAL 3 EXPRESSIVE)
-            AnimatedVisibility(
-                visible = uiState.isSelectionMode,
-                enter = slideInVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { it } +
-                        fadeIn(animationSpec = PixelUpIAMotion.effectsFloatSpring),
-                exit = slideOutVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { it } +
-                        fadeOut(animationSpec = PixelUpIAMotion.effectsFloatSpring),
+            // BARRA FLOTANTE INFERIOR: NAVEGACION O ACCIONES POR LOTE (MATERIAL 3 EXPRESSIVE)
+            AnimatedContent(
+                targetState = uiState.isSelectionMode,
+                transitionSpec = {
+                    (slideInVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { it } +
+                            fadeIn(animationSpec = PixelUpIAMotion.effectsFloatSpring))
+                        .togetherWith(
+                            slideOutVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { it } +
+                                    fadeOut(animationSpec = PixelUpIAMotion.effectsFloatSpring)
+                        )
+                },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp)
-                    .navigationBarsPadding()
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    tonalElevation = 6.dp,
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    .navigationBarsPadding(),
+                label = "FloatingBottomBarTransition"
+            ) { isSelection ->
+                if (isSelection) {
+                    // Barra de Acciones por Lote
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        tonalElevation = 6.dp,
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.padding(horizontal = 16.dp)
                     ) {
-                        // Mover
-                        IconButton(
-                            onClick = { viewModel.onEvent(GalleryEvent.RequestMoveSelected) },
-                            modifier = Modifier.minimumInteractiveComponentSize()
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.DriveFileMove,
-                                contentDescription = "Mover",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            IconButton(
+                                onClick = { viewModel.onEvent(GalleryEvent.RequestMoveSelected) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.DriveFileMove,
+                                    contentDescription = "Mover",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.onEvent(GalleryEvent.RequestCopySelected) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    Icons.Default.FileCopy,
+                                    contentDescription = "Copiar",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    sharePhotos(context, uiState.selectedPhotos)
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    Icons.Default.Share,
+                                    contentDescription = "Compartir",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.onEvent(GalleryEvent.RequestDeleteSelected) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Eliminar",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
-                        // Copiar
-                        IconButton(
-                            onClick = { viewModel.onEvent(GalleryEvent.RequestCopySelected) },
-                            modifier = Modifier.minimumInteractiveComponentSize()
+                    }
+                } else {
+                    // Barra de Navegación Flotante Estilo Píldora
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 6.dp,
+                        shadowElevation = 10.dp,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Default.FileCopy,
-                                contentDescription = "Copiar",
-                                tint = MaterialTheme.colorScheme.primary
+                            FloatingNavItem(
+                                icon = Icons.Default.Photo,
+                                label = "Fotos",
+                                isSelected = uiState.selectedTab == GalleryTab.PHOTOS,
+                                onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.PHOTOS)) }
                             )
-                        }
-                        // Compartir
-                        IconButton(
-                            onClick = {
-                                sharePhotos(context, uiState.selectedPhotos)
-                            },
-                            modifier = Modifier.minimumInteractiveComponentSize()
-                        ) {
-                            Icon(
-                                Icons.Default.Share,
-                                contentDescription = "Compartir",
-                                tint = MaterialTheme.colorScheme.primary
+                            FloatingNavItem(
+                                icon = Icons.Default.PhotoAlbum,
+                                label = "Albumes",
+                                isSelected = uiState.selectedTab == GalleryTab.ALBUMS,
+                                onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.ALBUMS)) }
                             )
-                        }
-                        // Eliminar
-                        IconButton(
-                            onClick = { viewModel.onEvent(GalleryEvent.RequestDeleteSelected) },
-                            modifier = Modifier.minimumInteractiveComponentSize()
-                        ) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Eliminar",
-                                tint = MaterialTheme.colorScheme.error
+                            FloatingNavItem(
+                                icon = Icons.Default.AutoAwesome,
+                                label = "IA SnapVault",
+                                isSelected = uiState.selectedTab == GalleryTab.SMART_AI,
+                                onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.SMART_AI)) }
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FloatingNavItem(
+    icon: ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+    val contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
+    Surface(
+        shape = CircleShape,
+        color = backgroundColor,
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = contentColor,
+                modifier = Modifier.size(20.dp)
+            )
+            AnimatedVisibility(
+                visible = isSelected,
+                enter = fadeIn() + expandHorizontally(),
+                exit = fadeOut() + shrinkHorizontally()
+            ) {
+                Row {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor
+                    )
                 }
             }
         }
@@ -501,7 +533,7 @@ fun PhotoGrid(
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 110.dp),
-        contentPadding = PaddingValues(4.dp),
+        contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 80.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         items(photos, key = { it.id }) { photo ->
@@ -566,7 +598,7 @@ fun AlbumGrid(
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 150.dp),
-        contentPadding = PaddingValues(8.dp),
+        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 80.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         items(albums, key = { it.name }) { album ->

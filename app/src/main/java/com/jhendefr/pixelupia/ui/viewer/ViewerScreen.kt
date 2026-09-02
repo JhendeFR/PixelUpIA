@@ -162,6 +162,17 @@ fun ViewerScreen(
         }
     }
 
+    // BottomSheet para Detalles y Copia de OCR
+    if (uiState.showOcrDetailsSheet && uiState.ocrResult != null) {
+        OcrDetailsBottomSheet(
+            ocrResult = uiState.ocrResult!!,
+            selectedBlockId = uiState.selectedBlockId,
+            onSelectBlock = { viewModel.onEvent(ViewerEvent.SelectTextBlock(it)) },
+            onDismiss = { viewModel.onEvent(ViewerEvent.ToggleOcrDetailsSheet) },
+            onCloseOcr = { viewModel.onEvent(ViewerEvent.CloseOcrOverlay) }
+        )
+    }
+
     var isPagerEnabled by remember { mutableStateOf(true) }
 
     Box(
@@ -173,7 +184,7 @@ fun ViewerScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = isPagerEnabled,
+            userScrollEnabled = isPagerEnabled && !uiState.showOcrOverlay,
             pageSpacing = 16.dp
         ) { page ->
             val photo = uiState.photos[page]
@@ -183,6 +194,44 @@ fun ViewerScreen(
                 onSwipeUp = { showInfoSheet = true },
                 onZoomChanged = { isPagerEnabled = it <= 1.05f }
             )
+        }
+
+        // Overlay de Bounding Boxes de OCR (Si está activo)
+        if (uiState.showOcrOverlay && uiState.ocrResult != null) {
+            OcrBoundingBoxOverlay(
+                ocrResult = uiState.ocrResult!!,
+                selectedBlockId = uiState.selectedBlockId,
+                onSelectBlock = { viewModel.onEvent(ViewerEvent.SelectTextBlock(it)) },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Indicador de Escaneo OCR en Progreso
+        if (uiState.isOcrScanning) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Analizando con OCR...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
         }
 
         // Top Bar como Overlay Tonal
@@ -220,13 +269,43 @@ fun ViewerScreen(
                                 )
                             }
                         },
+                        actions = {
+                            // Pildora para Probar OCR
+                            FilledTonalButton(
+                                onClick = {
+                                    if (uiState.showOcrOverlay) {
+                                        viewModel.onEvent(ViewerEvent.ToggleOcrDetailsSheet)
+                                    } else {
+                                        viewModel.onEvent(ViewerEvent.TriggerInteractiveOcr(currentPhoto.uri))
+                                    }
+                                },
+                                shape = CircleShape,
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = if (uiState.showOcrOverlay) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+                                    contentColor = if (uiState.showOcrOverlay) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (uiState.showOcrOverlay) "Ver Texto" else "Probar OCR",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                     )
                 }
             }
         }
 
-        // Barra Inferior Flotante Estilo Pildora M3 Expressive
+        // Barra Inferior Flotante Estilo Píldora M3 Expressive
         AnimatedVisibility(
             visible = showUI,
             enter = fadeIn(animationSpec = PixelUpIAMotion.effectsFloatSpring) +

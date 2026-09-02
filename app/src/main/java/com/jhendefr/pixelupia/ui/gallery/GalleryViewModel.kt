@@ -4,14 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jhendefr.pixelupia.domain.model.MediaOperationResult
 import com.jhendefr.pixelupia.domain.usecase.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class GalleryViewModel(
     private val getPhotosUseCase: GetPhotosUseCase,
     private val getAlbumsUseCase: GetAlbumsUseCase,
@@ -19,14 +16,47 @@ class GalleryViewModel(
     private val movePhotosUseCase: MovePhotosUseCase,
     private val copyPhotosUseCase: CopyPhotosUseCase,
     private val getFavoritePhotoIdsUseCase: GetFavoritePhotoIdsUseCase,
-    private val toggleFavoriteUseCase: ToggleFavoriteUseCase
+    private val toggleFavoriteUseCase: ToggleFavoriteUseCase,
+    private val searchSmartPhotosUseCase: SearchSmartPhotosUseCase,
+    private val getIndexedFoldersUseCase: GetIndexedFoldersUseCase,
+    private val processFolderOcrUseCase: ProcessFolderOcrUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GalleryUiState())
     val uiState: StateFlow<GalleryUiState> = _uiState.asStateFlow()
 
+    private val _searchQueryFlow = MutableStateFlow("")
+
     init {
         loadData()
+        observeSmartPhotos()
+    }
+
+    private fun observeSmartPhotos() {
+        viewModelScope.launch {
+            _searchQueryFlow
+                .flatMapLatest { query ->
+                    searchSmartPhotosUseCase(query)
+                }
+                .catch { error ->
+                    _uiState.update { it.copy(errorMessage = error.message) }
+                }
+                .collect { smartPhotos ->
+                    _uiState.update { it.copy(smartPhotos = smartPhotos) }
+                }
+        }
+    }
+
+    private fun observeIndexedFolders(photos: List<com.jhendefr.pixelupia.domain.model.Photo>) {
+        viewModelScope.launch {
+            getIndexedFoldersUseCase(photos)
+                .catch { error ->
+                    _uiState.update { it.copy(errorMessage = error.message) }
+                }
+                .collect { folders ->
+                    _uiState.update { it.copy(indexedFolders = folders) }
+                }
+        }
     }
 
     fun onEvent(event: GalleryEvent) {
@@ -40,6 +70,28 @@ class GalleryViewModel(
             }
             is GalleryEvent.SelectAlbum -> {
                 _uiState.update { it.copy(selectedAlbumName = event.albumName) }
+            }
+            is GalleryEvent.SelectIndexedFolder -> {
+                _uiState.update { it.copy(selectedIndexedFolderName = event.folderName) }
+            }
+            is GalleryEvent.TriggerBatchIndexFolder -> {
+                val folderPhotos = _uiState.value.photos.filter {
+                    it.folderName.equals(event.folderName, ignoreCase = true) ||
+                            it.folderName.contains(event.folderName, ignoreCase = true)
+                }
+                _uiState.update { it.copy(isBatchIndexing = true) }
+                viewModelScope.launch {
+                    processFolderOcrUseCase(folderPhotos) { current, total ->
+                        _uiState.update { it.copy(batchIndexingProgress = Pair(current, total)) }
+                    }
+                    _uiState.update {
+                        it.copy(
+                            isBatchIndexing = false,
+                            batchIndexingProgress = null,
+                            userMessage = "Indexacion OCR completada"
+                        )
+                    }
+                }
             }
             is GalleryEvent.TogglePhotoSelection -> {
                 val currentSelection = _uiState.value.selectedPhotoIds.toMutableSet()
@@ -56,10 +108,14 @@ class GalleryViewModel(
                     it.copy(userMessage = if (isFav) "Añadida a favoritos" else "Eliminada de favoritos")
                 }
             }
+            is GalleryEvent.UpdateSmartSearchQuery -> {
+                _uiState.update { it.copy(smartSearchQuery = event.query) }
+                _searchQueryFlow.value = event.query
+            }
             GalleryEvent.SelectAll -> {
                 val allIds = when (_uiState.value.selectedTab) {
                     GalleryTab.PHOTOS -> _uiState.value.photos.map { it.id }.toSet()
-                    GalleryTab.FAVORITES -> _uiState.value.favoritePhotos.map { it.id }.toSet()
+                    GalleryTab.SMART_AI -> _uiState.value.smartPhotos.map { it.id }.toSet()
                     GalleryTab.ALBUMS -> emptySet()
                 }
                 _uiState.update { it.copy(selectedPhotoIds = allIds) }
@@ -67,7 +123,10 @@ class GalleryViewModel(
             GalleryEvent.ClearSelection -> {
                 _uiState.update { it.copy(selectedPhotoIds = emptySet()) }
             }
-            GalleryEvent.Refresh -> loadData()
+            GalleryEvent.Refresh -> {
+                loadData()
+                _searchQueryFlow.value = _uiState.value.smartSearchQuery
+            }
 
             // Eliminacion
             GalleryEvent.RequestDeleteSelected -> {
@@ -247,6 +306,7 @@ class GalleryViewModel(
                             favoritePhotoIds = favorites
                         )
                     }
+                    observeIndexedFolders(photos)
                 }
         }
     }

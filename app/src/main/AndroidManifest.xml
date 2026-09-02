@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <!-- Android 13+ -->
+
+    <!-- Android 14+ Screen Capture Detection -->
+    <uses-permission android:name="android.permission.DETECT_SCREEN_CAPTURE" />
+
+    <!-- Android 13+ Media Images -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
-    <!-- Android 12-? -->
+    <!-- Android 12- Storage -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
