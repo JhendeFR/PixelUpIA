@@ -1,0 +1,3062 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.artifacts/
+  0222e1f9-e542-4fa1-a91d-8db996cde9de/
+    implementation_plan.artifact.md
+    task.artifact.md
+app/
+  src/
+    androidTest/
+      java/
+        com/
+          jhendefr/
+            pixelupia/
+              ExampleInstrumentedTest.kt
+    main/
+      assets/
+        ESRGAN.tflite
+      java/
+        com/
+          jhendefr/
+            pixelupia/
+              data/
+                media/
+                  MediaStoreLocalDataSource.kt
+                repository/
+                  MediaRepositoryImpl.kt
+              domain/
+                model/
+                  Album.kt
+                  Photo.kt
+                  SortOrder.kt
+                repository/
+                  MediaRepository.kt
+                usecase/
+                  GetAlbumsUseCase.kt
+                  GetPhotosUseCase.kt
+              ui/
+                gallery/
+                  AlbumDetailScreen.kt
+                  AlbumDetailViewModel.kt
+                  GalleryScreen.kt
+                  GalleryUiState.kt
+                  GalleryViewModel.kt
+                theme/
+                  Theme.kt
+                viewer/
+                  ViewerScreen.kt
+                  ViewerViewModel.kt
+              MainActivity.kt
+      res/
+        drawable/
+          ic_launcher_background.xml
+          ic_launcher_foreground.xml
+        mipmap-anydpi-v26/
+          ic_launcher_round.xml
+          ic_launcher.xml
+        mipmap-hdpi/
+          ic_launcher_round.webp
+          ic_launcher.webp
+        mipmap-mdpi/
+          ic_launcher_round.webp
+          ic_launcher.webp
+        mipmap-xhdpi/
+          ic_launcher_round.webp
+          ic_launcher.webp
+        mipmap-xxhdpi/
+          ic_launcher_round.webp
+          ic_launcher.webp
+        mipmap-xxxhdpi/
+          ic_launcher_round.webp
+          ic_launcher.webp
+        values/
+          colors.xml
+          ic_launcher_background.xml
+          strings.xml
+          themes.xml
+        xml/
+          backup_rules.xml
+          data_extraction_rules.xml
+      AndroidManifest.xml
+      ic_launcher-playstore.png
+    test/
+      java/
+        com/
+          jhendefr/
+            pixelupia/
+              ExampleUnitTest.kt
+  .gitignore
+  build.gradle.kts
+  proguard-rules.pro
+gradle/
+  wrapper/
+    gradle-wrapper.jar
+    gradle-wrapper.properties
+  gradle-daemon-jvm.properties
+  libs.versions.toml
+.gitignore
+build.gradle.kts
+gradle.properties
+gradlew
+gradlew.bat
+PixelUp_IA.apk
+settings.gradle.kts
+UI_DESIGN_GUIDELINES.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="UI_DESIGN_GUIDELINES.md">
+(UI/UX Design Skill: Material 3 Expressive — Android nativo / Jetpack Compose)
+
+A partir de este momento, asumes el rol de **Diseñador Principal de Interfaces y Experiencia de Usuario** especializado en Android moderno. Tienes **ESTRICTAMENTE PROHIBIDO** diseñar pantallas planas, aburridas, o que imiten frameworks multiplataforma genéricos (estilos planos tipo Flutter/Material 2 estándar).
+
+Cada componente de Jetpack Compose que crees o modifiques en `/PixelUpIA` DEBE regirse por los tres pilares de **Material 3 Expressive** (M3E): **tipografía enfatizada**, **movimiento físico (spring motion)** y **biblioteca de formas expresivas con morphing**. Esto NO es una guía cosmética: cada pilar tiene una API concreta en Compose y debe usarse como tal, no simulada con hacks manuales.
+
+---
+
+## 0. Setup técnico obligatorio
+
+- Usa la dependencia `androidx.compose.material3:material3` en su versión estable más reciente disponible en el proyecto (verifica el catálogo de versiones antes de asumir un número; muchas APIs de M3E siguen bajo `@OptIn(ExperimentalMaterial3ExpressiveApi::class)`, así que ese opt-in va en cada archivo que use componentes expresivos nuevos).
+- El tema raíz de la app debe declararse con `MaterialExpressiveTheme` (no `MaterialTheme` a secas) para heredar `motionScheme`, tipografía enfatizada y formas expresivas de forma consistente:
+
+```kotlin
+@Composable
+fun PixelUpIATheme(content: @Composable () -> Unit) {
+    MaterialExpressiveTheme(
+        colorScheme = PixelUpIAPalette,
+        typography = PixelUpIATypography,
+        shapes = RapidingoShapes,
+        motionScheme = MotionScheme.expressive(),
+        content = content,
+    )
+}
+```
+
+- Define `PixelUpIAShapes` una sola vez como objeto de tema (ver sección 3) y **referencia siempre `MaterialTheme.shapes.x`**, nunca `RoundedCornerShape(24.dp)` hardcodeado dentro de cada composable. Esto mantiene consistencia y permite reusar las mismas formas para morphing.
+
+---
+
+## 1. Color y superficies tonales
+
+- Prohibido usar blancos o grises planos (`Color.White`, `Color(0xFFF5F5F5)`, etc.) para separar tarjetas o secciones.
+- Usa la escala tonal completa de contenedores de superficie, de menor a mayor prominencia, y asígnala jerárquicamente en vez de usar "un solo gris para todo":
+  - `surfaceContainerLowest` / `surfaceContainerLow` → fondo general de pantalla.
+  - `surfaceContainer` → tarjetas de contenido estándar.
+  - `surfaceContainerHigh` → tarjetas destacadas (ej. tarjeta de pedido activo).
+  - `surfaceContainerHighest` → elementos flotantes por encima de todo (bottom sheets, diálogos, menús).
+- Si el dispositivo lo soporta (Android 12+), evalúa habilitar **color dinámico** (`dynamicLightColorScheme` / `dynamicDarkColorScheme`) como opción de personalización, con un esquema de marca (`ColorScheme.fromSeed` equivalente en Compose) como fallback para versiones anteriores.
+- Respeta los "state layers" de M3 para interacciones: overlay de ~8% de opacidad en hover, ~12% en pressed/dragged, sobre el color de contenido del componente — no inventes colores de estado ad-hoc.
+
+---
+
+## 2. Tipografía jerárquica y expresiva (escala dual)
+
+M3 Expressive introdujo una **escala dual de tipografía**: los mismos 15 roles de siempre (`display`, `headline`, `title`, `body`, `label` × `large/medium/small`), pero cada uno tiene ahora una variante **"Emphasized"** con mayor peso y ajustes ópticos, pensada para reemplazar el "bold ad-hoc".
+
+- Usa `titleLargeEmphasized`, `headlineSmallEmphasized`, etc. — vía `MaterialTheme.typography.titleLargeEmphasized` — para montos de dinero, ETAs, estados clave del viaje/pedido y cualquier dato que deba "saltar" en la jerarquía visual. No apliques `FontWeight.Bold` manualmente sobre un estilo baseline; usa el token Emphasized correspondiente.
+- Reserva `displayLarge`/`headlineLarge` (con o sin énfasis) para textos cortos y de alto impacto (título de pantalla, monto total del carrito). El rol `body` siempre debe priorizar legibilidad sobre expresividad — nunca uses variantes Emphasized en párrafos largos.
+- Combina pesos contrastantes deliberadamente: título Emphasized + cuerpo Normal en la misma tarjeta, para guiar el ojo sin necesidad de color.
+
+---
+
+## 3. Sistema de formas: biblioteca expresiva y morphing
+
+- Define una escala de esquinas con **tokens de tema**, no valores sueltos. Escala recomendada para PixelUpIA (bias hacia formas grandes y "amigables", consistente con la línea original del proyecto):
+
+```kotlin
+val PixelUpIAShapes = Shapes(
+    extraSmall = RoundedCornerShape(2.dp),  // badges, chips pequeños — nunca 4dp
+    small       = RoundedCornerShape(4.dp), // elementos secundarios
+    medium      = RoundedCornerShape(6.dp), // list items, inputs
+    large       = RoundedCornerShape(8.dp), // tarjetas principales
+    extraLarge  = RoundedCornerShape(10.dp), // hero cards, bottom sheets
+)
+```
+
+  Esto reemplaza el "nunca uses 4dp/8dp" original por algo que un agente de código puede aplicar de forma consistente vía `MaterialTheme.shapes.large`, en vez de repetir `RoundedCornerShape(24.dp)` a mano en cada archivo.
+
+- Para elementos "hero" (FAB principal, botón de captura, avatar de conductor/repartidor, loading indicator), usa la **biblioteca de 35 formas de M3 Expressive** (`androidx.graphics.shapes` / `MaterialShapes`: `Cookie9Sided`, `Sunny`, `Clover4Leaf`, `Pill`, `Burst`, etc.) en vez de siempre un círculo o rectángulo redondeado. Estas formas están pensadas exactamente para darle personalidad a los puntos focales de la pantalla.
+- Implementa **shape morphing** (`Morph(shapeA, shapeB)`) en interacciones de alto significado: un botón que cambia de forma al seleccionarse, o el indicador de carga (`LoadingIndicator` de M3E) que cicla entre formas mientras espera respuesta del servidor — especialmente útil en Tracking mientras se busca repartidor.
+
+---
+
+## 4. Botones y componentes de alta interacción
+
+- Botones principales (`Button`, `ExtendedFloatingActionButton`) con presencia fuerte: altura mínima `56.dp` para el tamaño estándar. M3E define además una escala completa de tamaños de botón (`XSmall` 32dp, `Small` 40dp, `Medium` 56dp, `Large` 96dp, `XLarge` 136dp) — usa `Medium` como default y `Large`/`XLarge` sólo para momentos hero (ej. botón "Confirmar pedido" en checkout, CTA de "Iniciar viaje").
+- Usa `ButtonGroup` / `ToggleButtonGroup` (nuevos en M3E) para grupos de acciones relacionadas (ej. filtros de categoría en el Dashboard) en vez de `Row` de botones sueltos — vienen con shape-morphing incorporado al presionar cada botón del grupo.
+- Estados visuales:
+  - Deshabilitado → `surfaceContainerHigh`/`onSurface` atenuado (opacidad ~38%).
+  - Habilitado → `primaryContainer` o `colorScheme.primary`, sin sombra dura; usa elevación tonal, no `shadowElevation` genérico.
+- FAB: evalúa `ExtendedFloatingActionButton` con morphing de icono→icono+texto, y si la pantalla tiene múltiples acciones flotantes relacionadas, usa **FAB Menu** en vez de apilar FABs sueltos.
+- Loading/progress: reemplaza `CircularProgressIndicator` genérico por los nuevos indicadores M3E (`LoadingIndicator`, variante "wavy") en estados de espera de red — Tracking y Active Trip son los casos de uso obvios.
+
+---
+
+## 5. Motion: sistema de resortes físicos (spring motion)
+
+Esta es la pieza que más faltaba en la versión anterior de esta guía: M3 Expressive **no usa easing/duration tradicional como base**, usa física de resortes.
+
+- El tema ya expone `motionScheme = MotionScheme.expressive()` (sección 0). Consume los specs desde ahí, nunca definas `tween()` sueltos para transiciones de layout:
+
+```kotlin
+val spatialSpec = MaterialTheme.motionScheme.fastSpatialSpec<Dp>()   // tamaño/posición/forma
+val effectsSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>() // color/opacidad
+```
+
+- Regla de oro: **tokens "spatial"** (posición, tamaño, forma) permiten rebote/overshoot — dan sensación juguetona. **Tokens "effects"** (color, opacidad) usan damping alto, sin rebote — un color que "rebota" se ve roto. No mezcles los dos.
+- Cada mutación de estado visible (cambio de botones en la máquina de estados del pedido, aparición de tarjetas en el pool de viajes, expansión de un bottom sheet) debe animarse con `animateContentSize(animationSpec = spatialSpec)` o el `AnimatedVisibility`/`AnimatedContent` correspondiente usando estos specs — nunca un cambio de visibilidad abrupto (`if (visible) { ... }` sin animación).
+- Respeta la preferencia de sistema "reducir movimiento": el motion scheme debe degradar a transiciones cortas/sin rebote cuando esa opción de accesibilidad está activa, no ignorarla.
+
+---
+
+## 6. Layout adaptativo
+
+- Rapidingo debe verse correcto en teléfono compacto, teléfono grande y tablet/foldable, no sólo en un tamaño de referencia. Usa **window size classes** como breakpoints y los building blocks adaptativos de M3 (`NavigationSuiteScaffold` para navegación que cambia entre bottom bar / navigation rail según el ancho disponible).
+- Para pantallas con lista + detalle (ej. historial de pedidos + detalle de pedido), considera un patrón `ListDetailPaneScaffold` en vez de forzar siempre navegación a pantalla completa.
+
+---
+
+## 7. Accesibilidad (no negociable)
+
+- Todo elemento interactivo debe tener un área táctil mínima de `48.dp`, incluso si el elemento visual es más pequeño (usa `Modifier.minimumInteractiveComponentSize()`).
+- Verifica contraste AA entre texto y superficie tonal en cada combinación nueva de color, especialmente con `surfaceContainerHighest` sobre fondos oscuros.
+- Toda animación debe respetar "reducir movimiento" del sistema (ver sección 5).
+
+---
+
+## 8. Prohibiciones explícitas
+
+- ❌ Fondos blancos/grises planos en vez de superficies tonales.
+- ❌ `RoundedCornerShape(4.dp)` / `(8.dp)` sueltos fuera de la escala de tema definida en la sección 3.
+- ❌ `tween()` o duraciones fijas para transiciones espaciales cuando existe un `motionScheme` disponible.
+- ❌ Cambios de visibilidad sin animar (`if/else` directo sobre composables sin `AnimatedVisibility`/`animateContentSize`).
+- ❌ Sombras duras (`shadowElevation` alto) en vez de elevación tonal.
+- ❌ Círculo o rectángulo por defecto en elementos "hero" cuando la biblioteca de formas expresivas está disponible.
+- ❌ Definir `RoundedCornerShape(...)` a mano repetidamente en vez de usar `MaterialTheme.shapes.*`.
+
+---
+
+## 9. Checklist de aplicación por pantalla
+
+Aplica rigurosamente esta línea de diseño en **Dashboard, Carrito, Tracking y Active Trip**:
+
+- **Dashboard**: superficies tonales por sección, `ButtonGroup` para filtros/categorías, tipografía Emphasized en promociones/destacados.
+- **Carrito**: monto total en `titleLargeEmphasized` con color primario, botón de checkout tamaño `Large`, `animateContentSize` al agregar/quitar ítems.
+- **Tracking**: `LoadingIndicator` con shape morphing mientras se busca conductor/repartidor, transición spatial con overshoot al aparecer la tarjeta de match.
+- **Active Trip**: tarjeta de viaje en `surfaceContainerHigh`, ETA y estado en Emphasized, cambios de estado del viaje (recogiendo → en camino → entregado) animados con `AnimatedContent` + specs del `motionScheme`, nunca un salto brusco de texto/ícono.
+
+---
+
+### Referencias para el agente (consultar si hay dudas de API)
+- `developer.android.com/develop/ui/compose/designsystems/material3`
+- `m3.material.io` (fundamentos: color, tipografía, forma, movimiento)
+</file>
+
+<file path=".artifacts/0222e1f9-e542-4fa1-a91d-8db996cde9de/implementation_plan.artifact.md">
+# Plan de corrección de advertencias y optimización de Gradle
+
+Este plan detalla los pasos para solucionar las advertencias detectadas en el proyecto, incluyendo mejoras en la configuración de dependencias y correcciones de formato en el código.
+
+## User Review Required
+
+> [!IMPORTANT]
+> Se actualizarán las versiones de TensorFlow Lite a la **2.17.0** y Coil a la **2.7.0** para resolver problemas de alineación de 16 KB y mejorar la compatibilidad con Android 15+.
+> Se migrarán las dependencias hardcodeadas al **Version Catalog** (`libs.versions.toml`).
+
+## Proposed Changes
+
+### [Componente: Datos]
+
+#### [MODIFY] [MediaStoreLocalDataSource.kt](file:///C:/Users/jhean/StudioProjects/PixelUpIA/app/src/main/java/com/jhendefr/pixelupia/data/media/MediaStoreLocalDataSource.kt)
+- Añadir la coma final faltante en la llamada a `ContentUris.withAppendedId`.
+
+### [Componente: Configuración de Build]
+
+#### [MODIFY] [libs.versions.toml](file:///C:/Users/jhean/StudioProjects/PixelUpIA/gradle/libs.versions.toml)
+- Añadir versiones y librerías para TensorFlow Lite y Coil.
+
+#### [MODIFY] [build.gradle.kts (app)](file:///C:/Users/jhean/StudioProjects/PixelUpIA/app/build.gradle.kts)
+- Reemplazar las dependencias de texto por referencias al Version Catalog (`libs.tensorflow...`, `libs.coil...`).
+- Eliminar la posible duplicidad en la declaración de la BOM de Compose.
+- Ajustar el bloque `android` para mitigar la advertencia de depreciación si es posible (verificación de compatibilidad con AGP 9.0).
+
+## Verification Plan
+
+### Automated Tests
+- Ejecutar `./gradlew :app:assembleDebug` para verificar que la compilación sea exitosa y las advertencias hayan desaparecido.
+- Ejecutar `analyze_file` en los archivos modificados.
+
+### Manual Verification
+- Sincronizar el proyecto en Android Studio y verificar que no haya errores de sincronización de Gradle.
+</file>
+
+<file path=".artifacts/0222e1f9-e542-4fa1-a91d-8db996cde9de/task.artifact.md">
+- [ ] Actualizar `libs.versions.toml` con TensorFlow Lite y Coil
+- [ ] Refactorizar `app/build.gradle.kts` para usar el Version Catalog
+- [ ] Eliminar duplicidad de la BOM de Compose en `app/build.gradle.kts`
+- [ ] Corregir la coma final en `MediaStoreLocalDataSource.kt`
+- [ ] Sincronizar Gradle y verificar resultados
+</file>
+
+<file path="app/src/androidTest/java/com/jhendefr/pixelupia/ExampleInstrumentedTest.kt">
+package com.jhendefr.pixelupia
+
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.ext.junit.runners.AndroidJUnit4
+
+import org.junit.Test
+import org.junit.runner.RunWith
+
+import org.junit.Assert.*
+
+/**
+ * Instrumented test, which will execute on an Android device.
+ *
+ * See [testing documentation](http://d.android.com/tools/testing).
+ */
+@RunWith(AndroidJUnit4::class)
+class ExampleInstrumentedTest {
+    @Test
+    fun useAppContext() {
+        // Context of the app under test.
+        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
+        assertEquals("com.example.pixelupia", appContext.packageName)
+    }
+}
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/data/media/MediaStoreLocalDataSource.kt">
+package com.jhendefr.pixelupia.data.media
+
+import android.content.ContentUris
+import android.content.Context
+import android.provider.MediaStore
+import com.jhendefr.pixelupia.domain.model.Photo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class MediaStoreLocalDataSource (private val context: Context) {
+    suspend fun fetchPhotos(): List<Photo> = withContext(Dispatchers.IO){
+        val photos = mutableListOf<Photo>()
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.SIZE,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+            MediaStore.Images.Media.MIME_TYPE,
+        )
+        val queryUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        //Puedes modificar el orden del resultado de la consulta
+        val sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC"
+
+        context.contentResolver.query(
+            queryUri,
+            projection,
+            null,
+            null,
+            sortOrder,
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+            val folderColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+            val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+            while (cursor.moveToNext()){
+                val id = cursor.getLong(idColumn)
+                val name = cursor.getString(nameColumn) ?: "Sin_nombre"
+                val dateTaken = cursor.getLong(dateColumn)
+                val size = cursor.getLong(sizeColumn)
+                val folderName = cursor.getString(folderColumn) ?: "Raiz"
+                val mimeType = cursor.getString(mimeColumn) ?: "image/*"
+                val contentUri = ContentUris.withAppendedId(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id
+                )
+                photos.add(
+                    Photo(
+                        id = id,
+                        uri = contentUri,
+                        name = name,
+                        dateTaken = dateTaken,
+                        size = size,
+                        folderName = folderName,
+                        mimeType = mimeType
+                    )
+                )
+            }
+        }
+        photos
+    }
+}
+/**
+ * Fuente de datos local que accede al MediaStore de Android para obtener fotos.
+ *
+ * Utiliza el ContentResolver y consultas al MediaStore para:
+ * - Recuperar metadatos de imágenes almacenadas en el dispositivo
+ * - Construir objetos Photo a partir de los resultados
+ *
+ * Las operaciones se ejecutan en Dispatchers.IO mediante corutinas,
+ * garantizando que las consultas de entrada/salida no bloqueen el hilo principal.
+ *
+ * Esta clase forma parte de la capa de datos y sirve como implementación
+ * concreta del repositorio definido en la capa de dominio.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/domain/model/Album.kt">
+package com.jhendefr.pixelupia.domain.model
+
+import android.net.Uri
+
+data class Album(
+    val name: String,
+    val coverUri: Uri,
+    val photoCount: Int,
+    val lastModified: Long,
+    val totalSize: Long
+)
+/**
+ * Modelo de dominio que representa un álbum de fotos.
+ *
+ * - name: nombre del álbum.
+ * - coverUri: URI de la imagen de portada.
+ * - photoCount: cantidad de fotos que contiene.
+ * - lastModified: timestamp de la foto más reciente.
+ * - totalSize: tamaño total en bytes de todas las fotos del álbum.
+ *
+ * Se utiliza en la capa de dominio para organizar y mostrar colecciones
+ * de fotos dentro de la aplicación.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/domain/model/Photo.kt">
+package com.jhendefr.pixelupia.domain.model
+
+import android.net.Uri
+
+data class Photo(
+    val id: Long,
+    val uri: Uri,
+    val name: String,
+    val dateTaken: Long,
+    val size: Long,
+    val folderName: String,
+    val mimeType: String
+)
+/**
+ * Representa el modelo de dominio para una foto dentro de la aplicación.
+ *
+ * Contiene los metadatos principales de una imagen obtenida del dispositivo:
+ * - id: identificador único en MediaStore
+ * - uri: referencia al recurso multimedia
+ * - name: nombre del archivo
+ * - dateTaken: fecha en que fue tomada (timestamp)
+ * - size: tamaño en bytes
+ * - folderName: carpeta/álbum donde está almacenada
+ * - mimeType: tipo de archivo (ej. image/jpeg)
+ *
+ * Se utiliza en la capa de dominio para casos de uso relacionados con
+ * la gestión y visualización de fotos.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/domain/model/SortOrder.kt">
+package com.jhendefr.pixelupia.domain.model
+
+enum class SortOrder {
+    DATE_DESC,
+    DATE_ASC,
+    NAME_ASC,
+    NAME_DESC,
+    SIZE_DESC,
+    SIZE_ASC
+}
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/domain/repository/MediaRepository.kt">
+package com.jhendefr.pixelupia.domain.repository
+
+import com.jhendefr.pixelupia.domain.model.Photo
+import kotlinx.coroutines.flow.Flow
+
+interface MediaRepository {
+    fun getPhotos(): Flow<List<Photo>>
+    suspend fun deletePhoto(photo: Photo): Result<Unit>
+    suspend fun renamePhoto(photo: Photo, newName: String): Result<Unit>
+    suspend fun movePhoto(photo: Photo, targetFolder: String): Result<Unit>
+    suspend fun copyPhoto(photo: Photo, targetFolder: String): Result<Unit>
+}
+/**
+ * Contrato de repositorio para la gestión de fotos en la aplicación.
+ *
+ * Define las operaciones disponibles sobre el recurso Photo:
+ * - getPhotos(): obtiene un flujo reactivo de la lista de fotos
+ * - deletePhoto(): elimina una foto
+ * - renamePhoto(): renombra una foto
+ * - movePhoto(): mueve una foto a otra carpeta
+ * - copyPhoto(): copia una foto a otra carpeta
+ *
+ * Esta interfaz pertenece a la capa de dominio y abstrae la lógica
+ * de acceso a datos, permitiendo que la implementación concreta
+ * (local o remota) se defina en la capa de datos.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/domain/usecase/GetAlbumsUseCase.kt">
+package com.jhendefr.pixelupia.domain.usecase
+
+import com.jhendefr.pixelupia.domain.model.Album
+import com.jhendefr.pixelupia.domain.model.SortOrder
+import com.jhendefr.pixelupia.domain.repository.MediaRepository
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+class GetAlbumsUseCase(
+    private val repository: MediaRepository
+) {
+    operator fun invoke(sortOrder: SortOrder = SortOrder.NAME_ASC): Flow<List<Album>> {
+        return repository.getPhotos().map { photos ->
+            photos.groupBy { it.folderName }
+                .map { (folderName, photosInFolder) ->
+                    Album(
+                        name = folderName,
+                        coverUri = photosInFolder.first().uri,
+                        photoCount = photosInFolder.size,
+                        lastModified = photosInFolder.maxOfOrNull { it.dateTaken } ?: 0L,
+                        totalSize = photosInFolder.sumOf { it.size }
+                    )
+                }
+                .let { albums ->
+                    when (sortOrder) {
+                        SortOrder.DATE_DESC -> albums.sortedByDescending { it.lastModified }
+                        SortOrder.DATE_ASC -> albums.sortedBy { it.lastModified }
+                        SortOrder.NAME_ASC -> albums.sortedBy { it.name.lowercase() }
+                        SortOrder.NAME_DESC -> albums.sortedByDescending { it.name.lowercase() }
+                        SortOrder.SIZE_DESC -> albums.sortedByDescending { it.totalSize }
+                        SortOrder.SIZE_ASC -> albums.sortedBy { it.totalSize }
+                    }
+                }
+        }
+    }
+}
+/**
+ * Caso de uso para obtener y organizar álbumes de fotos.
+ *
+ * - Agrupa las fotos del repositorio según su carpeta (folderName).
+ * - Construye objetos Album con nombre, portada, cantidad de fotos, fecha y tamaño.
+ * - Devuelve un Flow<List<Album>> ordenado según el criterio recibido.
+ *
+ * Pertenece a la capa de dominio y encapsula la lógica de negocio
+ * para mostrar colecciones de fotos como álbumes.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/ui/theme/Theme.kt">
+package com.jhendefr.pixelupia.ui.theme
+
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+
+private val DarkColorScheme = darkColorScheme()
+private val LightColorScheme = lightColorScheme()
+
+@Composable
+fun PixelUpIATheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        content = content
+    )
+}
+/**
+ * Tema de la aplicación PixelUpIA basado en Material3.
+ *
+ * - Define esquemas de color para modo claro y oscuro.
+ * - Selecciona automáticamente el esquema según la configuración del sistema.
+ * - Aplica el tema a todo el contenido de la app mediante MaterialTheme.
+ *
+ * Pertenece a la capa de presentación y centraliza la configuración visual
+ * de la interfaz de usuario.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/ui/viewer/ViewerViewModel.kt">
+package com.jhendefr.pixelupia.ui.viewer
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.domain.usecase.GetPhotosUseCase
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+data class ViewerUiState(
+    val photos: List<Photo> = emptyList(),
+    val initialIndex: Int = 0,
+    val isLoading: Boolean = true
+)
+
+class ViewerViewModel(
+    private val initialPhotoId: Long,
+    private val albumName: String?, // Nulo si venimos de la galería principal
+    private val getPhotosUseCase: GetPhotosUseCase
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(ViewerUiState())
+    val uiState: StateFlow<ViewerUiState> = _uiState.asStateFlow()
+
+    init {
+        loadPhotos()
+    }
+
+    private fun loadPhotos() {
+        viewModelScope.launch {
+            getPhotosUseCase().collect { allPhotos ->
+                // Filtramos si venimos de un álbum en específico
+                val displayPhotos = if (!albumName.isNullOrEmpty()) {
+                    allPhotos.filter { it.folderName == albumName }
+                } else {
+                    allPhotos
+                }
+
+                if (displayPhotos.isEmpty()) {
+                    _uiState.update { it.copy(isLoading = false, photos = emptyList()) }
+                    return@collect
+                }
+
+                // Buscamos el índice de la foto que el usuario tocó
+                val index = displayPhotos.indexOfFirst { it.id == initialPhotoId }.coerceAtLeast(0)
+
+                _uiState.update {
+                    it.copy(
+                        photos = displayPhotos,
+                        initialIndex = index,
+                        isLoading = false
+                    )
+                }
+            }
+        }
+    }
+}
+</file>
+
+<file path="app/src/main/res/drawable/ic_launcher_background.xml">
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#3DDC84"
+        android:pathData="M0,0h108v108h-108z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M9,0L9,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M19,0L19,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M29,0L29,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M39,0L39,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M49,0L49,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M59,0L59,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M69,0L69,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M79,0L79,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M89,0L89,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M99,0L99,108"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,9L108,9"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,19L108,19"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,29L108,29"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,39L108,39"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,49L108,49"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,59L108,59"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,69L108,69"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,79L108,79"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,89L108,89"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,99L108,99"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M19,29L89,29"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M19,39L89,39"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M19,49L89,49"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M19,59L89,59"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M19,69L89,69"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M19,79L89,79"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M29,19L29,89"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M39,19L39,89"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M49,19L49,89"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M59,19L59,89"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M69,19L69,89"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M79,19L79,89"
+        android:strokeWidth="0.8"
+        android:strokeColor="#33FFFFFF" />
+</vector>
+</file>
+
+<file path="app/src/main/res/values/colors.xml">
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
+</file>
+
+<file path="app/src/main/res/values/ic_launcher_background.xml">
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#3BE786</color>
+</resources>
+</file>
+
+<file path="app/src/main/res/values/strings.xml">
+<resources>
+    <string name="app_name">PixelUp IA</string>
+</resources>
+</file>
+
+<file path="app/src/main/res/values/themes.xml">
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.PixelUpIA" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
+</file>
+
+<file path="app/src/main/res/xml/backup_rules.xml">
+<?xml version="1.0" encoding="utf-8"?><!--
+   Sample backup rules file; uncomment and customize as necessary.
+   See https://developer.android.com/guide/topics/data/autobackup
+   for details.
+   Note: This file is ignored for devices older than API 31
+   See https://developer.android.com/about/versions/12/backup-restore
+-->
+<full-backup-content>
+    <!--
+   <include domain="sharedpref" path="."/>
+   <exclude domain="sharedpref" path="device.xml"/>
+-->
+</full-backup-content>
+</file>
+
+<file path="app/src/main/res/xml/data_extraction_rules.xml">
+<?xml version="1.0" encoding="utf-8"?><!--
+   Sample data extraction rules file; uncomment and customize as necessary.
+   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
+   for details.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- TODO: Use <include> and <exclude> to control what is backed up.
+        <include .../>
+        <exclude .../>
+        -->
+    </cloud-backup>
+    <!--
+    <device-transfer>
+        <include .../>
+        <exclude .../>
+    </device-transfer>
+    -->
+</data-extraction-rules>
+</file>
+
+<file path="app/src/main/AndroidManifest.xml">
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Android 13+ -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Android 12-? -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PixelUpIA">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.PixelUpIA">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
+</file>
+
+<file path="app/src/test/java/com/jhendefr/pixelupia/ExampleUnitTest.kt">
+package com.jhendefr.pixelupia
+
+import org.junit.Test
+
+import org.junit.Assert.*
+
+/**
+ * Example local unit test, which will execute on the development machine (host).
+ *
+ * See [testing documentation](http://d.android.com/tools/testing).
+ */
+class ExampleUnitTest {
+    @Test
+    fun addition_isCorrect() {
+        assertEquals(4, 2 + 2)
+    }
+}
+</file>
+
+<file path="app/.gitignore">
+/build
+</file>
+
+<file path="app/proguard-rules.pro">
+# Add project specific ProGuard rules here.
+# You can control the set of applied configuration files using the
+# proguardFiles setting in build.gradle.
+#
+# For more details, see
+#   http://developer.android.com/guide/developing/tools/proguard.html
+
+# If your project uses WebView with JS, uncomment the following
+# and specify the fully qualified class name to the JavaScript interface
+# class:
+#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
+#   public *;
+#}
+
+# Uncomment this to preserve the line number information for
+# debugging stack traces.
+#-keepattributes SourceFile,LineNumberTable
+
+# If you keep the line number information, uncomment this to
+# hide the original source file name.
+#-renamesourcefileattribute SourceFile
+</file>
+
+<file path="gradle/gradle-daemon-jvm.properties">
+#This file is generated by updateDaemonJvm
+toolchainUrl.FREE_BSD.AARCH64=https\://api.foojay.io/disco/v3.0/ids/491f83666ae7f4d6ebb28fee72ebb035/redirect
+toolchainUrl.FREE_BSD.X86_64=https\://api.foojay.io/disco/v3.0/ids/0d1a1acdc708062093673f65aa9aba4b/redirect
+toolchainUrl.LINUX.AARCH64=https\://api.foojay.io/disco/v3.0/ids/491f83666ae7f4d6ebb28fee72ebb035/redirect
+toolchainUrl.LINUX.X86_64=https\://api.foojay.io/disco/v3.0/ids/0d1a1acdc708062093673f65aa9aba4b/redirect
+toolchainUrl.MAC_OS.AARCH64=https\://api.foojay.io/disco/v3.0/ids/7083b89563e7ce20943037b8cd2b8cc2/redirect
+toolchainUrl.MAC_OS.X86_64=https\://api.foojay.io/disco/v3.0/ids/060bbb778a1f55ea705fdebd2ccfeab9/redirect
+toolchainUrl.UNIX.AARCH64=https\://api.foojay.io/disco/v3.0/ids/491f83666ae7f4d6ebb28fee72ebb035/redirect
+toolchainUrl.UNIX.X86_64=https\://api.foojay.io/disco/v3.0/ids/0d1a1acdc708062093673f65aa9aba4b/redirect
+toolchainUrl.WINDOWS.AARCH64=https\://api.foojay.io/disco/v3.0/ids/d09679dc60fe5aa05ef7d03efdefac20/redirect
+toolchainUrl.WINDOWS.X86_64=https\://api.foojay.io/disco/v3.0/ids/ed4e3bf2f5e7c5d9aabc4cbd8acd555e/redirect
+toolchainVendor=JETBRAINS
+toolchainVersion=21
+</file>
+
+<file path=".gitignore">
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+</file>
+
+<file path="build.gradle.kts">
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+plugins {
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.kotlin.compose) apply false
+}
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/data/repository/MediaRepositoryImpl.kt">
+package com.jhendefr.pixelupia.data.repository
+
+import android.content.ContentValues
+import android.content.Context
+import android.os.Build
+import android.provider.MediaStore
+import com.jhendefr.pixelupia.data.media.MediaStoreLocalDataSource
+import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.domain.repository.MediaRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
+
+class MediaRepositoryImpl(
+    private val context: Context,
+    private val localDataSource: MediaStoreLocalDataSource
+) : MediaRepository {
+
+    override fun getPhotos(): Flow<List<Photo>> = flow {
+        emit(localDataSource.fetchPhotos())
+    }
+
+    override suspend fun deletePhoto(photo: Photo): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val deletedRows = context.contentResolver.delete(photo.uri, null, null)
+            if (deletedRows > 0) Result.success(Unit)
+            else Result.failure(Exception("No se encontró el archivo para eliminar"))
+        } catch (e: SecurityException) {
+            // En Android 10+, esto arrojará error si intentas borrar una foto que no creó tu app
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun renamePhoto(photo: Photo, newName: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, newName)
+            }
+            val updatedRows = context.contentResolver.update(photo.uri, values, null, null)
+            if (updatedRows > 0) Result.success(Unit)
+            else Result.failure(Exception("No se pudo renombrar la foto"))
+        } catch (e: SecurityException) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun movePhoto(photo: Photo, targetFolder: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            // A partir de Android 10, podemos mover archivos cambiando su ruta relativa
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/$targetFolder")
+                }
+                val updatedRows = context.contentResolver.update(photo.uri, values, null, null)
+                if (updatedRows > 0) Result.success(Unit)
+                else Result.failure(Exception("No se pudo mover la foto"))
+            } else {
+                // En versiones antiguas, hay que copiar el archivo y borrar el original
+                val copyResult = copyPhoto(photo, targetFolder)
+                if (copyResult.isSuccess) {
+                    deletePhoto(photo)
+                } else {
+                    copyResult
+                }
+            }
+        } catch (e: SecurityException) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun copyPhoto(photo: Photo, targetFolder: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "Copia_${photo.name}")
+                put(MediaStore.Images.Media.MIME_TYPE, photo.mimeType)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/$targetFolder")
+                }
+            }
+
+            // 1. Creamos el espacio vacío en el MediaStore
+            val newUri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                ?: return@withContext Result.failure(Exception("Error al crear el espacio para la copia"))
+
+            // 2. Leemos los bytes de la foto original y los escribimos en el nuevo espacio
+            context.contentResolver.openInputStream(photo.uri)?.use { input ->
+                context.contentResolver.openOutputStream(newUri)?.use { output ->
+                    input.copyTo(output)
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+}
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/domain/usecase/GetPhotosUseCase.kt">
+package com.jhendefr.pixelupia.domain.usecase
+
+import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.domain.model.SortOrder
+import com.jhendefr.pixelupia.domain.repository.MediaRepository
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+class GetPhotosUseCase(private val repository: MediaRepository) {
+    operator fun invoke(sortOrder: SortOrder = SortOrder.DATE_DESC): Flow<List<Photo>> {
+        return repository.getPhotos().map { photos ->
+            when (sortOrder) {
+                SortOrder.DATE_DESC -> photos.sortedByDescending { it.dateTaken }
+                SortOrder.DATE_ASC -> photos.sortedBy { it.dateTaken }
+                SortOrder.NAME_ASC -> photos.sortedBy { it.name.lowercase() }
+                SortOrder.NAME_DESC -> photos.sortedByDescending { it.name.lowercase() }
+                SortOrder.SIZE_DESC -> photos.sortedByDescending { it.size }
+                SortOrder.SIZE_ASC -> photos.sortedBy { it.size }
+            }
+        }
+    }
+}
+/**
+ * Caso de uso para obtener y ordenar fotos desde el repositorio.
+ *
+ * - Define criterios de ordenamiento (fecha, nombre, tamaño).
+ * - Consume MediaRepository y devuelve un Flow<List<Photo>> ya ordenado.
+ * - Por defecto ordena las fotos por fecha descendente (más recientes primero).
+ *
+ * Pertenece a la capa de dominio y encapsula la lógica de negocio
+ * para la presentación de fotos en la aplicación.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/ui/gallery/AlbumDetailScreen.kt">
+package com.jhendefr.pixelupia.ui.gallery
+
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.FileCopy
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jhendefr.pixelupia.domain.model.Photo
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AlbumDetailScreen(
+    viewModel: AlbumDetailViewModel,
+    onBackClick: () -> Unit,
+    onPhotoClick: (Photo) -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    Scaffold(
+        topBar = {
+            if (uiState.isSelectionMode) {
+                TopAppBar(
+                    title = { Text("${uiState.selectedPhotoIds.size} seleccionadas") },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.onEvent(AlbumDetailEvent.ClearSelection) }) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancelar selección")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = uiState.albumName,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Volver"
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            if (uiState.isLoading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else if (uiState.errorMessage != null) {
+                Text(
+                    text = uiState.errorMessage ?: "Error",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            } else {
+                // Reutilizamos el PhotoGrid que está en GalleryScreen.kt
+                PhotoGrid(
+                    photos = uiState.photos,
+                    selectedIds = uiState.selectedPhotoIds,
+                    isSelectionMode = uiState.isSelectionMode,
+                    onPhotoClick = onPhotoClick,
+                    onToggleSelection = { viewModel.onEvent(AlbumDetailEvent.TogglePhotoSelection(it)) }
+                )
+            }
+
+            // BARRA INFERIOR TIPO PÍLDORA (MATERIAL EXPRESSIVE)
+            AnimatedVisibility(
+                visible = uiState.isSelectionMode,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { /* Mover */ }) {
+                        Icon(Icons.Default.DriveFileMove, "Mover", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                    IconButton(onClick = { /* Copiar */ }) {
+                        Icon(Icons.Default.FileCopy, "Copiar", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                    IconButton(onClick = { /* Compartir */ }) {
+                        Icon(Icons.Default.Share, "Compartir", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                    IconButton(onClick = { /* Eliminar */ }) {
+                        Icon(Icons.Default.Delete, "Eliminar", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    }
+}
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/ui/gallery/AlbumDetailViewModel.kt">
+package com.jhendefr.pixelupia.ui.gallery
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.domain.model.SortOrder
+import com.jhendefr.pixelupia.domain.usecase.GetPhotosUseCase
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+// 1. Estado actualizado
+data class AlbumDetailUiState(
+    val albumName: String = "",
+    val isLoading: Boolean = true,
+    val photos: List<Photo> = emptyList(),
+    val sortOrder: SortOrder = SortOrder.DATE_DESC,
+    val errorMessage: String? = null,
+    val selectedPhotoIds: Set<Long> = emptySet()
+) {
+    val isSelectionMode: Boolean get() = selectedPhotoIds.isNotEmpty()
+}
+
+// 2. Eventos actualizados
+sealed interface AlbumDetailEvent {
+    data class ChangeSortOrder(val newOrder: SortOrder) : AlbumDetailEvent
+    data class TogglePhotoSelection(val photoId: Long) : AlbumDetailEvent
+    object ClearSelection : AlbumDetailEvent
+    object Refresh : AlbumDetailEvent
+}
+
+// 3. ViewModel
+class AlbumDetailViewModel(
+    private val albumName: String,
+    private val getPhotosUseCase: GetPhotosUseCase
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(AlbumDetailUiState(albumName = albumName))
+    val uiState: StateFlow<AlbumDetailUiState> = _uiState.asStateFlow()
+
+    init {
+        loadPhotos()
+    }
+
+    fun onEvent(event: AlbumDetailEvent) {
+        when (event) {
+            is AlbumDetailEvent.ChangeSortOrder -> {
+                _uiState.update { it.copy(sortOrder = event.newOrder) }
+                loadPhotos()
+            }
+            is AlbumDetailEvent.TogglePhotoSelection -> {
+                val currentSelection = _uiState.value.selectedPhotoIds.toMutableSet()
+                if (currentSelection.contains(event.photoId)) {
+                    currentSelection.remove(event.photoId)
+                } else {
+                    currentSelection.add(event.photoId)
+                }
+                _uiState.update { it.copy(selectedPhotoIds = currentSelection) }
+            }
+            AlbumDetailEvent.ClearSelection -> {
+                _uiState.update { it.copy(selectedPhotoIds = emptySet()) }
+            }
+            AlbumDetailEvent.Refresh -> loadPhotos()
+        }
+    }
+
+    private fun loadPhotos() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            getPhotosUseCase(_uiState.value.sortOrder)
+                .catch { error ->
+                    _uiState.update { it.copy(isLoading = false, errorMessage = error.message) }
+                }
+                .collect { allPhotos ->
+                    val filteredPhotos = allPhotos.filter { it.folderName == albumName }
+                    _uiState.update { it.copy(isLoading = false, photos = filteredPhotos) }
+                }
+        }
+    }
+}
+</file>
+
+<file path="app/src/main/res/drawable/ic_launcher_foreground.xml">
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1052"
+    android:viewportHeight="1052">
+  <group android:scaleX="1.07"
+      android:scaleY="1.07"
+      android:translateX="-36.82"
+      android:translateY="-36.82">
+    <path
+        android:pathData="M124,13L928,13A110,110 0,0 1,1038 123L1038,928A110,110 0,0 1,928 1038L124,1038A110,110 0,0 1,14 928L14,123A110,110 0,0 1,124 13z"
+        android:fillColor="#303030"/>
+    <path
+        android:pathData="M526,526m-425,0a425,425 0,1 1,850 0a425,425 0,1 1,-850 0"
+        android:fillColor="#8BDAE9"/>
+    <path
+        android:pathData="M526,151C733.1,151 901,318.9 901,526C901,733.1 733.1,901 526,901C318.9,901 151,733.1 151,526C151,318.9 318.9,151 526,151Z"
+        android:fillColor="#312F30"/>
+    <path
+        android:pathData="M283,306h114v105h-114z"
+        android:fillColor="#A07DCE"/>
+    <path
+        android:pathData="M283,421h114v105h-114z"
+        android:fillColor="#686E7A"/>
+    <path
+        android:pathData="M412,421h114v105h-114z"
+        android:fillColor="#95D589"/>
+    <path
+        android:pathData="M412,306h114v105h-114z"
+        android:fillColor="#59D2DD"/>
+    <path
+        android:pathData="M526,526h114v105h-114z"
+        android:fillColor="#686E7A"/>
+    <path
+        android:pathData="M526,641h114v105h-114z"
+        android:fillColor="#A07DCE"/>
+    <path
+        android:pathData="M655,641h114v105h-114z"
+        android:fillColor="#8CDBEA"/>
+    <path
+        android:pathData="M655,526h114v105h-114z"
+        android:fillColor="#95D589"/>
+    <path
+        android:pathData="M274.5,752C268.6,757.8 268.5,767.3 274.3,773.3C280.1,779.2 289.6,779.3 295.5,773.5L285,762.8L274.5,752ZM672.3,404.6L829.6,350.9L708.4,227.1L651.3,383.2L672.3,404.6ZM285,762.8L295.5,773.5L683,394.2L672.5,383.4L662,372.7L274.5,752L285,762.8Z"
+        android:fillColor="#8CDBEA"/>
+  </group>
+</vector>
+</file>
+
+<file path="app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml">
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+</adaptive-icon>
+</file>
+
+<file path="app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml">
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+</adaptive-icon>
+</file>
+
+<file path="gradle/wrapper/gradle-wrapper.properties">
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-9.6.1-bin.zip
+networkTimeout=10000
+retries=0
+retryBackOffMs=500
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+</file>
+
+<file path="gradle.properties">
+# Project-wide Gradle settings.
+# IDE (e.g. Android Studio) users:
+# Gradle settings configured through the IDE *will override*
+# any settings specified in this file.
+# For more details on how to configure your build environment visit
+# http://www.gradle.org/docs/current/userguide/build_environment.html
+# Specifies the JVM arguments used for the daemon process.
+# The setting is particularly useful for tweaking memory settings.
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+# When configured, Gradle will run in incubating parallel mode.
+# This option should only be used with decoupled projects. For more details, visit
+# https://developer.android.com/r/tools/gradle-multi-project-decoupled-projects
+# org.gradle.parallel=true
+# AndroidX package structure to make it clearer which packages are bundled with the
+# Android operating system, and which are packaged with your app's APK
+# https://developer.android.com/topic/libraries/support-library/androidx-rn
+android.useAndroidX=true
+# Kotlin code style for this project: "official" or "obsolete":
+kotlin.code.style=official
+# Enables namespacing of each library's R class so that its R class includes only the
+# resources declared in the library itself and none from the library's dependencies,
+# thereby reducing the size of the R class for that library
+android.nonTransitiveRClass=true
+android.defaults.buildfeatures.resvalues=true
+android.sdk.defaultTargetSdkToCompileSdkIfUnset=false
+android.enableAppCompileTimeRClass=false
+android.usesSdkInManifest.disallowed=false
+android.uniquePackageNames=false
+android.dependency.useConstraints=true
+android.r8.strictFullModeForKeepRules=false
+android.r8.optimizedResourceShrinking=false
+android.builtInKotlin=false
+android.newDsl=false
+</file>
+
+<file path="gradlew">
+#!/bin/sh
+
+#
+# Copyright © 2015 the original authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+##############################################################################
+#
+#   gradlew start up script for POSIX generated by Gradle.
+#
+#   Important for running:
+#
+#   (1) You need a POSIX-compliant shell to run this script. If your /bin/sh is
+#       noncompliant, but you have some other compliant shell such as ksh or
+#       bash, then to run this script, type that shell name before the whole
+#       command line, like:
+#
+#           ksh gradlew
+#
+#       Busybox and similar reduced shells will NOT work, because this script
+#       requires all of these POSIX shell features:
+#         * functions;
+#         * expansions «$var», «${var}», «${var:-default}», «${var+SET}»,
+#           «${var#prefix}», «${var%suffix}», and «$( cmd )»;
+#         * compound commands having a testable exit status, especially «case»;
+#         * various built-in commands including «command», «set», and «ulimit».
+#
+#   Important for patching:
+#
+#   (2) This script targets any POSIX shell, so it avoids extensions provided
+#       by Bash, Ksh, etc; in particular arrays are avoided.
+#
+#       The "traditional" practice of packing multiple parameters into a
+#       space-separated string is a well documented source of bugs and security
+#       problems, so this is (mostly) avoided, by progressively accumulating
+#       options in "$@", and eventually passing that to Java.
+#
+#       Where the inherited environment variables (DEFAULT_JVM_OPTS, JAVA_OPTS,
+#       and GRADLE_OPTS) rely on word-splitting, this is performed explicitly;
+#       see the in-line comments for details.
+#
+#       There are tweaks for specific operating systems such as AIX, CygWin,
+#       Darwin, MinGW, and NonStop.
+#
+#   (3) This script is generated from the Groovy template
+#       https://github.com/gradle/gradle/blob/3d91ce3b8caaf77ad09f381f43615b715b53f72c/platforms/jvm/plugins-application/src/main/resources/org/gradle/api/internal/plugins/unixStartScript.txt
+#       within the Gradle project.
+#
+#       You can find Gradle at https://github.com/gradle/gradle/.
+#
+##############################################################################
+
+# Attempt to set APP_HOME
+
+# Resolve links: $0 may be a link
+app_path=$0
+
+# Need this for daisy-chained symlinks.
+while
+    APP_HOME=${app_path%"${app_path##*/}"}  # leaves a trailing /; empty if no leading path
+    [ -h "$app_path" ]
+do
+    ls=$( ls -ld "$app_path" )
+    link=${ls#*' -> '}
+    case $link in             #(
+      /*)   app_path=$link ;; #(
+      *)    app_path=$APP_HOME$link ;;
+    esac
+done
+
+# This is normally unused
+# shellcheck disable=SC2034
+APP_BASE_NAME=${0##*/}
+# Discard cd standard output in case $CDPATH is set (https://github.com/gradle/gradle/issues/25036)
+APP_HOME=$( cd -P "${APP_HOME:-./}" > /dev/null && printf '%s\n' "$PWD" ) || exit
+
+# Use the maximum available, or set MAX_FD != -1 to use that value.
+MAX_FD=maximum
+
+warn () {
+    echo "$*"
+} >&2
+
+die () {
+    echo
+    echo "$*"
+    echo
+    exit 1
+} >&2
+
+# OS specific support (must be 'true' or 'false').
+cygwin=false
+msys=false
+darwin=false
+nonstop=false
+case "$( uname )" in                #(
+  CYGWIN* )         cygwin=true  ;; #(
+  Darwin* )         darwin=true  ;; #(
+  MSYS* | MINGW* )  msys=true    ;; #(
+  NONSTOP* )        nonstop=true ;;
+esac
+
+
+
+# Determine the Java command to use to start the JVM.
+if [ -n "$JAVA_HOME" ] ; then
+    if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
+        # IBM's JDK on AIX uses strange locations for the executables
+        JAVACMD=$JAVA_HOME/jre/sh/java
+    else
+        JAVACMD=$JAVA_HOME/bin/java
+    fi
+    if [ ! -x "$JAVACMD" ] ; then
+        die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME
+
+Please set the JAVA_HOME variable in your environment to match the
+location of your Java installation."
+    fi
+else
+    JAVACMD=java
+    if ! command -v java >/dev/null 2>&1
+    then
+        die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
+
+Please set the JAVA_HOME variable in your environment to match the
+location of your Java installation."
+    fi
+fi
+
+# Increase the maximum file descriptors if we can.
+if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
+    case $MAX_FD in #(
+      max*)
+        # In POSIX sh, ulimit -H is undefined. That's why the result is checked to see if it worked.
+        # shellcheck disable=SC2039,SC3045
+        MAX_FD=$( ulimit -H -n ) ||
+            warn "Could not query maximum file descriptor limit"
+    esac
+    case $MAX_FD in  #(
+      '' | soft) :;; #(
+      *)
+        # In POSIX sh, ulimit -n is undefined. That's why the result is checked to see if it worked.
+        # shellcheck disable=SC2039,SC3045
+        ulimit -n "$MAX_FD" ||
+            warn "Could not set maximum file descriptor limit to $MAX_FD"
+    esac
+fi
+
+# Collect all arguments for the java command, stacking in reverse order:
+#   * args from the command line
+#   * the main class name
+#   * -classpath
+#   * -D...appname settings
+#   * --module-path (only if needed)
+#   * DEFAULT_JVM_OPTS, JAVA_OPTS, and GRADLE_OPTS environment variables.
+
+# For Cygwin or MSYS, switch paths to Windows format before running java
+if "$cygwin" || "$msys" ; then
+    APP_HOME=$( cygpath --path --mixed "$APP_HOME" )
+
+    JAVACMD=$( cygpath --unix "$JAVACMD" )
+
+    # Now convert the arguments - kludge to limit ourselves to /bin/sh
+    for arg do
+        if
+            case $arg in                                #(
+              -*)   false ;;                            # don't mess with options #(
+              /?*)  t=${arg#/} t=/${t%%/*}              # looks like a POSIX filepath
+                    [ -e "$t" ] ;;                      #(
+              *)    false ;;
+            esac
+        then
+            arg=$( cygpath --path --ignore --mixed "$arg" )
+        fi
+        # Roll the args list around exactly as many times as the number of
+        # args, so each arg winds up back in the position where it started, but
+        # possibly modified.
+        #
+        # NB: a `for` loop captures its iteration list before it begins, so
+        # changing the positional parameters here affects neither the number of
+        # iterations, nor the values presented in `arg`.
+        shift                   # remove old arg
+        set -- "$@" "$arg"      # push replacement arg
+    done
+fi
+
+
+# Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
+DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+
+# Collect all arguments for the java command:
+#   * DEFAULT_JVM_OPTS, JAVA_OPTS, and optsEnvironmentVar are not allowed to contain shell fragments,
+#     and any embedded shellness will be escaped.
+#   * For example: A user cannot expect ${Hostname} to be expanded, as it is an environment variable and will be
+#     treated as '${Hostname}' itself on the command line.
+
+set -- \
+        "-Dorg.gradle.appname=$APP_BASE_NAME" \
+        -jar "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
+        "$@"
+
+# Stop when "xargs" is not available.
+if ! command -v xargs >/dev/null 2>&1
+then
+    die "xargs is not available"
+fi
+
+# Use "xargs" to parse quoted args.
+#
+# With -n1 it outputs one arg per line, with the quotes and backslashes removed.
+#
+# In Bash we could simply go:
+#
+#   readarray ARGS < <( xargs -n1 <<<"$var" ) &&
+#   set -- "${ARGS[@]}" "$@"
+#
+# but POSIX shell has neither arrays nor command substitution, so instead we
+# post-process each arg (as a line of input to sed) to backslash-escape any
+# character that might be a shell metacharacter, then use eval to reverse
+# that process (while maintaining the separation between arguments), and wrap
+# the whole thing up as a single "set" statement.
+#
+# This will of course break if any of these variables contains a newline or
+# an unmatched quote.
+#
+
+eval "set -- $(
+        printf '%s\n' "$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS" |
+        xargs -n1 |
+        sed ' s~[^-[:alnum:]+,./:=@_]~\\&~g; ' |
+        tr '\n' ' '
+    )" '"$@"'
+
+exec "$JAVACMD" "$@"
+</file>
+
+<file path="gradlew.bat">
+@rem
+@rem Copyright 2015 the original author or authors.
+@rem
+@rem Licensed under the Apache License, Version 2.0 (the "License");
+@rem you may not use this file except in compliance with the License.
+@rem You may obtain a copy of the License at
+@rem
+@rem      https://www.apache.org/licenses/LICENSE-2.0
+@rem
+@rem Unless required by applicable law or agreed to in writing, software
+@rem distributed under the License is distributed on an "AS IS" BASIS,
+@rem WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+@rem See the License for the specific language governing permissions and
+@rem limitations under the License.
+@rem
+@rem SPDX-License-Identifier: Apache-2.0
+@rem
+
+@if "%DEBUG%"=="" @echo off
+@rem ##########################################################################
+@rem
+@rem  gradlew startup script for Windows
+@rem
+@rem ##########################################################################
+
+@rem Set local scope for the variables, and ensure extensions are enabled
+setlocal EnableExtensions
+
+set DIRNAME=%~dp0
+if "%DIRNAME%"=="" set DIRNAME=.
+@rem This is normally unused
+set APP_BASE_NAME=%~n0
+set APP_HOME=%DIRNAME%
+
+@rem Resolve any "." and ".." in APP_HOME to make it shorter.
+for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
+
+@rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
+set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
+
+@rem Find java.exe
+if defined JAVA_HOME goto findJavaFromJavaHome
+
+set JAVA_EXE=java.exe
+%JAVA_EXE% -version >NUL 2>&1
+if %ERRORLEVEL% equ 0 goto execute
+
+echo. 1>&2
+echo ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH. 1>&2
+echo. 1>&2
+echo Please set the JAVA_HOME variable in your environment to match the 1>&2
+echo location of your Java installation. 1>&2
+
+"%COMSPEC%" /c exit 1
+
+:findJavaFromJavaHome
+set JAVA_HOME=%JAVA_HOME:"=%
+set JAVA_EXE=%JAVA_HOME%/bin/java.exe
+
+if exist "%JAVA_EXE%" goto execute
+
+echo. 1>&2
+echo ERROR: JAVA_HOME is set to an invalid directory: %JAVA_HOME% 1>&2
+echo. 1>&2
+echo Please set the JAVA_HOME variable in your environment to match the 1>&2
+echo location of your Java installation. 1>&2
+
+"%COMSPEC%" /c exit 1
+
+:execute
+@rem Setup the command line
+
+
+
+@rem Execute gradlew
+@rem endlocal doesn't take effect until after the line is parsed and variables are expanded
+@rem which allows us to clear the local environment before executing the java command
+endlocal & "%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -jar "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" %* & call :exitWithErrorLevel
+
+:exitWithErrorLevel
+@rem Use "%COMSPEC%" /c exit to allow operators to work properly in scripts
+"%COMSPEC%" /c exit %ERRORLEVEL%
+</file>
+
+<file path="settings.gradle.kts">
+pluginManagement {
+    repositories {
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "PixelUp IA"
+include(":app")
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/ui/gallery/GalleryScreen.kt">
+package com.jhendefr.pixelupia.ui.gallery
+
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import com.jhendefr.pixelupia.domain.model.Album
+import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.domain.model.SortOrder
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GalleryScreen(
+    viewModel: GalleryViewModel,
+    onPhotoClick: (Photo) -> Unit = {},
+    onAlbumClick: (Album) -> Unit = {}
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var showSortMenu by remember { mutableStateOf(false) }
+
+    val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+    var hasPermission by remember { mutableStateOf(false) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasPermission = isGranted
+        if (isGranted) {
+            viewModel.onEvent(GalleryEvent.Refresh)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        launcher.launch(permission)
+    }
+
+    Scaffold(
+        topBar = {
+            // 1. TOP BAR DINÁMICA (Modo Normal vs Modo Selección)
+            if (uiState.isSelectionMode) {
+                TopAppBar(
+                    title = { Text("${uiState.selectedPhotoIds.size} seleccionadas") },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.onEvent(GalleryEvent.ClearSelection) }) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancelar selección")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "PixelUpIA",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    actions = {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Sort,
+                                contentDescription = "Ordenar"
+                            )
+                        }
+                        SortMenu(
+                            expanded = showSortMenu,
+                            currentOrder = uiState.sortOrder,
+                            onDismiss = { showSortMenu = false },
+                            onSortChange = { viewModel.onEvent(GalleryEvent.ChangeSortOrder(it)) }
+                        )
+                    }
+                )
+            }
+        }
+    ) { paddingValues ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                if (!hasPermission) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Se requiere permiso para ver la galería 🖼️")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(onClick = { launcher.launch(permission) }) {
+                                Text("Conceder Permiso")
+                            }
+                        }
+                    }
+                } else if (uiState.isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (uiState.errorMessage != null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = uiState.errorMessage ?: "Error desconocido",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                } else {
+                    // Pestañas de Navegación: Fotos y Álbumes
+                    TabRow(selectedTabIndex = uiState.selectedTab.ordinal) {
+                        Tab(
+                            selected = uiState.selectedTab == GalleryTab.PHOTOS,
+                            onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.PHOTOS)) },
+                            text = { Text("Fotos (${uiState.photos.size})") }
+                        )
+                        Tab(
+                            selected = uiState.selectedTab == GalleryTab.ALBUMS,
+                            onClick = { viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.ALBUMS)) },
+                            text = { Text("Álbumes (${uiState.albums.size})") }
+                        )
+                    }
+
+                    // Contenido según la pestaña seleccionada
+                    when (uiState.selectedTab) {
+                        GalleryTab.PHOTOS -> {
+                            PhotoGrid(
+                                photos = uiState.photos,
+                                selectedIds = uiState.selectedPhotoIds,
+                                isSelectionMode = uiState.isSelectionMode,
+                                onPhotoClick = onPhotoClick,
+                                onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
+                            )
+                        }
+                        GalleryTab.ALBUMS -> {
+                            AlbumGrid(
+                                albums = uiState.albums,
+                                onAlbumClick = onAlbumClick
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. BARRA INFERIOR TIPO PÍLDORA (MATERIAL EXPRESSIVE)
+            AnimatedVisibility(
+                visible = uiState.isSelectionMode,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Mover
+                    IconButton(onClick = { /* Implementaremos mover */ }) {
+                        Icon(
+                            Icons.Default.DriveFileMove,
+                            "Mover",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    // Copiar
+                    IconButton(onClick = { /* Implementaremos copiar */ }) {
+                        Icon(
+                            Icons.Default.FileCopy,
+                            "Copiar",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    // Compartir
+                    IconButton(onClick = { /* Implementaremos compartir */ }) {
+                        Icon(
+                            Icons.Default.Share,
+                            "Compartir",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    // Eliminar (Resaltado en color de error)
+                    IconButton(onClick = { /* Implementaremos eliminar */ }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            "Eliminar",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PhotoGrid(
+    photos: List<Photo>,
+    selectedIds: Set<Long> = emptySet(),
+    isSelectionMode: Boolean = false,
+    onPhotoClick: (Photo) -> Unit,
+    onToggleSelection: (Long) -> Unit = {}
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 110.dp),
+        contentPadding = PaddingValues(4.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(photos, key = { it.id }) { photo ->
+            val isSelected = selectedIds.contains(photo.id)
+
+            Box(
+                modifier = Modifier
+                    .padding(4.dp)
+                    .aspectRatio(1f)
+                    .clip(MaterialTheme.shapes.medium)
+                    .combinedClickable(
+                        onClick = {
+                            if (isSelectionMode) onToggleSelection(photo.id)
+                            else onPhotoClick(photo)
+                        },
+                        onLongClick = { onToggleSelection(photo.id) }
+                    )
+            ) {
+                AsyncImage(
+                    model = photo.uri,
+                    contentDescription = photo.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Overlay visual cuando la imagen está seleccionada
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.4f))
+                    )
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Seleccionada",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AlbumGrid(
+    albums: List<Album>,
+    onAlbumClick: (Album) -> Unit
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 140.dp),
+        contentPadding = PaddingValues(8.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(albums, key = { it.name }) { album ->
+            Card(
+                modifier = Modifier
+                    .padding(6.dp)
+                    .fillMaxWidth(),
+                onClick = { onAlbumClick(album) }
+            ) {
+                Column {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                    ) {
+                        AsyncImage(
+                            model = album.coverUri,
+                            contentDescription = album.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(4.dp)
+                        ) {
+                            Text(
+                                text = "${album.photoCount}",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = album.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+@Composable
+fun SortMenu(
+    expanded: Boolean,
+    currentOrder: SortOrder,
+    onDismiss: () -> Unit,
+    onSortChange: (SortOrder) -> Unit
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        // Opción: Fecha
+        SortMenuItem(
+            label = "Fecha",
+            categoryIcon = Icons.Default.DateRange,
+            isSelected = currentOrder == SortOrder.DATE_DESC || currentOrder == SortOrder.DATE_ASC,
+            isDesc = currentOrder == SortOrder.DATE_DESC,
+            onClick = {
+                val next = if (currentOrder == SortOrder.DATE_DESC) SortOrder.DATE_ASC else SortOrder.DATE_DESC
+                onSortChange(next)
+            }
+        )
+        // Opción: Nombre
+        SortMenuItem(
+            label = "Nombre",
+            categoryIcon = Icons.Default.SortByAlpha,
+            isSelected = currentOrder == SortOrder.NAME_ASC || currentOrder == SortOrder.NAME_DESC,
+            isDesc = currentOrder == SortOrder.NAME_DESC,
+            onClick = {
+                val next = if (currentOrder == SortOrder.NAME_ASC) SortOrder.NAME_DESC else SortOrder.NAME_ASC
+                onSortChange(next)
+            }
+        )
+        // Opción: Tamaño
+        SortMenuItem(
+            label = "Tamaño",
+            categoryIcon = Icons.Default.Storage,
+            isSelected = currentOrder == SortOrder.SIZE_DESC || currentOrder == SortOrder.SIZE_ASC,
+            isDesc = currentOrder == SortOrder.SIZE_DESC,
+            onClick = {
+                val next = if (currentOrder == SortOrder.SIZE_DESC) SortOrder.SIZE_ASC else SortOrder.SIZE_DESC
+                onSortChange(next)
+            }
+        )
+    }
+}
+
+@Composable
+fun SortMenuItem(
+    label: String,
+    categoryIcon: ImageVector,
+    isSelected: Boolean,
+    isDesc: Boolean,
+    onClick: () -> Unit
+) {
+    // Definimos colores dinámicos si está seleccionado
+    val contentColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
+
+    DropdownMenuItem(
+        modifier = Modifier.background(backgroundColor),
+        text = {
+            Text(text = label, color = contentColor)
+        },
+        leadingIcon = {
+            Icon(imageVector = categoryIcon, contentDescription = null, tint = contentColor)
+        },
+        trailingIcon = {
+            if (isSelected) {
+                // Animación de rotación: 0f (abajo/descendente) o 180f (arriba/ascendente)
+                val rotation by animateFloatAsState(targetValue = if (isDesc) 0f else 180f, label = "arrowRotation")
+                Icon(
+                    imageVector = Icons.Default.ArrowDownward,
+                    contentDescription = null,
+                    modifier = Modifier.rotate(rotation),
+                    tint = contentColor
+                )
+            }
+        },
+        onClick = onClick
+    )
+}
+/**
+ * Pantalla de galería implementada con Jetpack Compose.
+ *
+ * - Solicita permisos de lectura de imágenes.
+ * - Observa el estado del ViewModel (GalleryUiState) y renderiza la UI.
+ * - Permite cambiar el orden de las fotos y álbumes mediante un menú.
+ * - Navega a fotos individuales o a detalles de álbum.
+ *
+ * Pertenece a la capa de presentación.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/ui/gallery/GalleryUiState.kt">
+package com.jhendefr.pixelupia.ui.gallery
+
+import com.jhendefr.pixelupia.domain.model.Album
+import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.domain.model.SortOrder
+
+enum class GalleryTab {
+    PHOTOS,
+    ALBUMS
+}
+
+data class GalleryUiState(
+    val isLoading: Boolean = true,
+    val photos: List<Photo> = emptyList(),
+    val albums: List<Album> = emptyList(),
+    val selectedTab: GalleryTab = GalleryTab.PHOTOS,
+    val selectedAlbumName: String? = null,
+    val sortOrder: SortOrder = SortOrder.DATE_DESC,
+    val errorMessage: String? = null,
+    // Nuevas variables para la Selección Múltiple
+    val selectedPhotoIds: Set<Long> = emptySet()
+) {
+    val isSelectionMode: Boolean get() = selectedPhotoIds.isNotEmpty()
+}
+
+sealed interface GalleryEvent {
+    data class ChangeSortOrder(val newOrder: SortOrder) : GalleryEvent
+    data class SelectTab(val tab: GalleryTab) : GalleryEvent
+    data class SelectAlbum(val albumName: String?) : GalleryEvent
+    // Nuevos eventos
+    data class TogglePhotoSelection(val photoId: Long) : GalleryEvent
+    object ClearSelection : GalleryEvent
+    object Refresh : GalleryEvent
+}
+/**
+ * Estado y eventos de la UI para la galería de fotos.
+ *
+ * - GalleryUiState: mantiene indicadores de carga, lista de fotos y álbumes,
+ *   pestaña seleccionada, orden de clasificación y posibles errores.
+ * - GalleryEvent: define interacciones de usuario como cambiar orden,
+ *   seleccionar pestaña o refrescar la galería.
+ *
+ * Pertenece a la capa de presentación y centraliza el manejo del estado
+ * y las acciones de la pantalla de galería.
+ */
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/ui/gallery/GalleryViewModel.kt">
+package com.jhendefr.pixelupia.ui.gallery
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.jhendefr.pixelupia.domain.usecase.GetAlbumsUseCase
+import com.jhendefr.pixelupia.domain.usecase.GetPhotosUseCase
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class GalleryViewModel(
+    private val getPhotosUseCase: GetPhotosUseCase,
+    private val getAlbumsUseCase: GetAlbumsUseCase
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(GalleryUiState())
+    val uiState: StateFlow<GalleryUiState> = _uiState.asStateFlow()
+
+    init {
+        loadData()
+    }
+
+    fun onEvent(event: GalleryEvent) {
+        when (event) {
+            is GalleryEvent.ChangeSortOrder -> {
+                _uiState.update { it.copy(sortOrder = event.newOrder) }
+                loadData()
+            }
+            is GalleryEvent.SelectTab -> {
+                _uiState.update { it.copy(selectedTab = event.tab) }
+            }
+            GalleryEvent.Refresh -> loadData()
+            is GalleryEvent.SelectAlbum -> {
+                _uiState.update { it.copy(selectedAlbumName = event.albumName) }
+            }
+            is GalleryEvent.TogglePhotoSelection -> {
+                val currentSelection = _uiState.value.selectedPhotoIds.toMutableSet()
+                if (currentSelection.contains(event.photoId)) {
+                    currentSelection.remove(event.photoId)
+                } else {
+                    currentSelection.add(event.photoId)
+                }
+                _uiState.update { it.copy(selectedPhotoIds = currentSelection) }
+            }
+            GalleryEvent.ClearSelection -> {
+                _uiState.update { it.copy(selectedPhotoIds = emptySet()) }
+            }
+        }
+    }
+
+    private fun loadData() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+
+            combine(
+                getPhotosUseCase(_uiState.value.sortOrder),
+                getAlbumsUseCase(_uiState.value.sortOrder)
+            ) { photos, albums ->
+                Pair(photos, albums)
+            }
+                .catch { error ->
+                    _uiState.update {
+                        it.copy(isLoading = false, errorMessage = error.message)
+                    }
+                }
+                .collect { (photos, albums) ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            photos = photos,
+                            albums = albums
+                        )
+                    }
+                }
+        }
+    }
+}
+/**
+ * ViewModel para la pantalla de galería de fotos y álbumes.
+ *
+ * - Mantiene e expone el estado de la UI mediante StateFlow (GalleryUiState).
+ * - Gestiona eventos de usuario como cambiar orden, seleccionar pestaña o refrescar.
+ * - Combina GetPhotosUseCase y GetAlbumsUseCase para obtener fotos y álbumes ordenados.
+ * - Controla estados de carga y error.
+ *
+ * Pertenece a la capa de presentación y coordina la lógica entre
+ * la UI y la capa de dominio.
+ **/
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/ui/viewer/ViewerScreen.kt">
+package com.jhendefr.pixelupia.ui.viewer
+
+import androidx.compose.animation.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import com.jhendefr.pixelupia.domain.model.Photo
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ViewerScreen(
+    viewModel: ViewerViewModel,
+    onBackClick: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var showUI by remember { mutableStateOf(true) }
+    var showInfoSheet by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+
+    if (uiState.isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
+    if (uiState.photos.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No se encontraron fotos", color = Color.White)
+        }
+        return
+    }
+
+    val pagerState = rememberPagerState(
+        initialPage = uiState.initialIndex,
+        pageCount = { uiState.photos.size }
+    )
+
+    // Estado de scroll del Pager (se desactiva si hay zoom)
+    var isPagerEnabled by remember { mutableStateOf(true) }
+
+    // BottomSheet para los metadatos (Info)
+    if (showInfoSheet) {
+        val currentPhoto = uiState.photos[pagerState.currentPage]
+        ModalBottomSheet(
+            onDismissRequest = { showInfoSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            PhotoMetadataPanel(photo = currentPhoto)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        // 1. Pager Horizontal para deslizar entre imágenes (Ocupa toda la pantalla)
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = isPagerEnabled,
+            pageSpacing = 16.dp
+        ) { page ->
+            val photo = uiState.photos[page]
+            ZoomableImage(
+                photo = photo,
+                onTap = { showUI = !showUI },
+                onSwipeUp = { showInfoSheet = true },
+                onZoomChanged = { isPagerEnabled = it <= 1f }
+            )
+        }
+
+        // 2. Top Bar como Overlay
+        AnimatedVisibility(
+            visible = showUI,
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            // Usamos Surface para darle el fondo semitransparente que antes daba el Scaffold
+            Surface(
+                color = Color.Black.copy(alpha = 0.4f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(modifier = Modifier.statusBarsPadding()) {
+                    TopAppBar(
+                        title = { },
+                        navigationIcon = {
+                            IconButton(onClick = onBackClick) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Regresar",
+                                    tint = Color.White
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                    )
+                }
+            }
+        }
+
+        // 3. Barra Inferior Estilo Píldora
+        AnimatedVisibility(
+            visible = showUI,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+                .navigationBarsPadding()
+        ) {
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { /* Favorito */ }) {
+                        Icon(Icons.Default.FavoriteBorder, "Favorito", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = { /* Editar */ }) {
+                        Icon(Icons.Default.Edit, "Editar", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = { showInfoSheet = true }) {
+                        Icon(Icons.Default.Info, "Información", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = { /* Eliminar */ }) {
+                        Icon(Icons.Default.Delete, "Eliminar", tint = MaterialTheme.colorScheme.error)
+                    }
+                    Box {
+                        IconButton(onClick = { showMoreMenu = true }) {
+                            Icon(Icons.Default.MoreVert, "Más", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
+                            DropdownMenuItem(text = { Text("Mover") }, onClick = { showMoreMenu = false })
+                            DropdownMenuItem(text = { Text("Copiar") }, onClick = { showMoreMenu = false })
+                            DropdownMenuItem(text = { Text("Compartir") }, onClick = { showMoreMenu = false })
+                        }
+                    }
+                }
+            }
+    }
+}
+
+@Composable
+fun ZoomableImage(
+    photo: Photo,
+    onTap: () -> Unit,
+    onSwipeUp: () -> Unit,
+    onZoomChanged: (Float) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val scale = remember { Animatable(1f) }
+    val offsetX = remember { Animatable(0f) }
+    val offsetY = remember { Animatable(0f) }
+
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onTap() },
+                    onDoubleTap = {
+                        coroutineScope.launch {
+                            val targetScale = if (scale.value > 1f) 1f else 3f
+                            onZoomChanged(targetScale)
+                            launch { scale.animateTo(targetScale) }
+                            launch { offsetX.animateTo(0f) }
+                            launch { offsetY.animateTo(0f) }
+                        }
+                    }
+                )
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val pointers = event.changes.size
+                        val zoom = event.calculateZoom()
+                        val pan = event.calculatePan()
+
+                        // 1. Zoom/Pan: Solo consumimos si hay movimiento real
+                        // Esto permite que detectTapGestures vea los eventos de "tap"
+                        if (pointers >= 2 || scale.value > 1.05f) {
+                            if (zoom != 1f || pan != Offset.Zero) {
+                                event.changes.forEach { it.consume() }
+
+                                coroutineScope.launch {
+                                    val newScale = (scale.value * zoom).coerceIn(1f, 5f)
+                                    scale.snapTo(newScale)
+                                    onZoomChanged(newScale)
+
+                                    if (newScale > 1f) {
+                                        val scaledWidth = containerSize.width * newScale
+                                        val scaledHeight = containerSize.height * newScale
+                                        val maxOffsetX = (scaledWidth - containerSize.width).coerceAtLeast(0f) / 2f
+                                        val maxOffsetY = (scaledHeight - containerSize.height).coerceAtLeast(0f) / 2f
+
+                                        offsetX.snapTo((offsetX.value + pan.x).coerceIn(-maxOffsetX, maxOffsetX))
+                                        offsetY.snapTo((offsetY.value + pan.y).coerceIn(-maxOffsetY, maxOffsetY))
+                                    } else {
+                                        offsetX.snapTo(0f)
+                                        offsetY.snapTo(0f)
+                                    }
+                                }
+                            }
+                        }
+                        // 2. Swipe Up: Solo un dedo y escala 1
+                        else if (pointers == 1 && scale.value <= 1.05f) {
+                            val change = event.changes.first()
+                            val dragY = change.position.y - change.previousPosition.y
+                            val dragX = change.position.x - change.previousPosition.x
+
+                            if (dragY < -25f && Math.abs(dragY) > Math.abs(dragX) * 2) {
+                                onSwipeUp()
+                                change.consume()
+                                break
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        containerSize = IntSize(constraints.maxWidth, constraints.maxHeight)
+
+        AsyncImage(
+            model = photo.uri,
+            contentDescription = photo.name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale.value,
+                    scaleY = scale.value,
+                    translationX = offsetX.value,
+                    translationY = offsetY.value
+                )
+        )
+    }
+}
+
+@Composable
+fun PhotoMetadataPanel(photo: Photo) {
+    val dateString = remember(photo.dateTaken) {
+        val dateFormatter = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+        dateFormatter.format(Date(photo.dateTaken))
+    }
+    val sizeInMb = photo.size / (1024f * 1024f)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Detalles de la imagen", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        HorizontalDivider()
+        MetadataRow(Icons.Default.Image, "Nombre", photo.name)
+        MetadataRow(Icons.Default.DateRange, "Fecha", dateString)
+        MetadataRow(Icons.Default.Folder, "Carpeta", photo.folderName)
+        MetadataRow(Icons.Default.Storage, "Tamaño", String.format(Locale.US, "%.2f MB", sizeInMb))
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun MetadataRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(modifier = Modifier.width(16.dp))
+        Column {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+</file>
+
+<file path="app/build.gradle.kts">
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+}
+
+android {
+    namespace = "com.jhendefr.pixelupia"
+    compileSdk = 37
+
+    defaultConfig {
+        applicationId = "com.jhendefr.pixelupia"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    androidResources {
+        noCompress += "tflite"
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+dependencies {
+    // TensorFlow Lite
+    implementation(libs.tensorflow.lite)
+    implementation(libs.tensorflow.lite.gpu)
+    implementation(libs.tensorflow.lite.support)
+
+    // Coil
+    implementation(libs.coil.compose)
+
+    // Lifecycle Compose
+    implementation("androidx.lifecycle:lifecycle-runtime-compose")
+
+    // AndroidX & Compose
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
+
+    // BOM
+    val composeBom = platform(libs.androidx.compose.bom)
+    implementation(composeBom)
+    androidTestImplementation(composeBom)
+
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+
+    // Nav entre pantallas
+    implementation(libs.androidx.navigation.compose)
+
+    // Iconos extendidos de Compose
+    implementation(libs.androidx.compose.material.icons.extended)
+
+    // Testing
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+}
+</file>
+
+<file path="gradle/libs.versions.toml">
+[versions]
+agp = "9.3.1"
+kotlin = "2.4.10"
+coreKtx = "1.19.0"
+junit = "4.13.2"
+junitVersion = "1.3.0"
+espressoCore = "3.7.0"
+lifecycleRuntimeKtx = "2.11.0"
+activityCompose = "1.13.0"
+composeBom = "2026.06.01"
+tensorflow = "2.17.0"
+tensorflow-support = "0.5.0"
+coil = "2.7.0"
+navigationCompose =  "2.8.5"
+
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflow" }
+tensorflow-lite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.ref = "tensorflow" }
+tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tensorflow-support" }
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+androidx-navigation-compose =  {group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose"}
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+</file>
+
+<file path="app/src/main/java/com/jhendefr/pixelupia/MainActivity.kt">
+package com.jhendefr.pixelupia
+
+import android.net.Uri
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.jhendefr.pixelupia.data.media.MediaStoreLocalDataSource
+import com.jhendefr.pixelupia.data.repository.MediaRepositoryImpl
+import com.jhendefr.pixelupia.domain.usecase.GetAlbumsUseCase
+import com.jhendefr.pixelupia.domain.usecase.GetPhotosUseCase
+import com.jhendefr.pixelupia.ui.gallery.AlbumDetailScreen
+import com.jhendefr.pixelupia.ui.gallery.AlbumDetailViewModel
+import com.jhendefr.pixelupia.ui.gallery.GalleryScreen
+import com.jhendefr.pixelupia.ui.gallery.GalleryViewModel
+import com.jhendefr.pixelupia.ui.theme.PixelUpIATheme
+import com.jhendefr.pixelupia.ui.viewer.ViewerScreen
+import com.jhendefr.pixelupia.ui.viewer.ViewerViewModel
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+
+        val dataSource = MediaStoreLocalDataSource(applicationContext)
+        val repository = MediaRepositoryImpl(applicationContext, dataSource)
+        val getPhotosUseCase = GetPhotosUseCase(repository)
+        val getAlbumsUseCase = GetAlbumsUseCase(repository)
+
+        val galleryViewModelFactory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return GalleryViewModel(getPhotosUseCase, getAlbumsUseCase) as T
+            }
+        }
+
+        val galleryViewModel = ViewModelProvider(this, galleryViewModelFactory)[GalleryViewModel::class.java]
+
+        setContent {
+            PixelUpIATheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    val navController = rememberNavController()
+
+                    NavHost(
+                        navController = navController,
+                        startDestination = "gallery"
+                    ) {
+                        // 1. Galería
+                        composable("gallery") {
+                            GalleryScreen(
+                                viewModel = galleryViewModel,
+                                onPhotoClick = { selectedPhoto ->
+                                    navController.navigate("viewer/${selectedPhoto.id}")
+                                },
+                                onAlbumClick = { album ->
+                                    navController.navigate("album_detail/${Uri.encode(album.name)}")
+                                }
+                            )
+                        }
+
+                        // 2. Detalle del Álbum
+                        composable(
+                            route = "album_detail/{albumName}",
+                            arguments = listOf(navArgument("albumName") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val albumName = backStackEntry.arguments?.getString("albumName") ?: ""
+                            
+                            val detailViewModel: AlbumDetailViewModel = viewModel(
+                                factory = object : ViewModelProvider.Factory {
+                                    @Suppress("UNCHECKED_CAST")
+                                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                                        return AlbumDetailViewModel(albumName, getPhotosUseCase) as T
+                                    }
+                                }
+                            )
+
+                            AlbumDetailScreen(
+                                viewModel = detailViewModel,
+                                onBackClick = { navController.popBackStack() },
+                                onPhotoClick = { photo ->
+                                    // Pasamos el ID y el nombre del álbum
+                                    navController.navigate("viewer/${photo.id}?albumName=${Uri.encode(albumName)}")
+                                }
+                            )
+                        }
+
+                        // 3. VISOR ACTUALIZADO
+                        composable(
+                            route = "viewer/{photoId}?albumName={albumName}",
+                            arguments = listOf(
+                                navArgument("photoId") { type = NavType.LongType },
+                                navArgument("albumName") { type = NavType.StringType; nullable = true }
+                            )
+                        ) { backStackEntry ->
+                            val photoId = backStackEntry.arguments?.getLong("photoId") ?: 0L
+                            val rawAlbumName = backStackEntry.arguments?.getString("albumName")
+                            val albumName = if (rawAlbumName != null) Uri.decode(rawAlbumName) else null
+
+                            val viewerViewModel: ViewerViewModel = viewModel(
+                                factory = object : ViewModelProvider.Factory {
+                                    @Suppress("UNCHECKED_CAST")
+                                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                                        return ViewerViewModel(photoId, albumName, getPhotosUseCase) as T
+                                    }
+                                }
+                            )
+
+                            ViewerScreen(
+                                viewModel = viewerViewModel,
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+</file>
+
+</files>

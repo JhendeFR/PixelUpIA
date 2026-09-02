@@ -17,10 +17,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.jhendefr.pixelupia.data.local.FavoritesLocalDataSource
 import com.jhendefr.pixelupia.data.media.MediaStoreLocalDataSource
 import com.jhendefr.pixelupia.data.repository.MediaRepositoryImpl
-import com.jhendefr.pixelupia.domain.usecase.GetAlbumsUseCase
-import com.jhendefr.pixelupia.domain.usecase.GetPhotosUseCase
+import com.jhendefr.pixelupia.domain.usecase.*
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailScreen
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailViewModel
 import com.jhendefr.pixelupia.ui.gallery.GalleryScreen
@@ -35,14 +35,29 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val dataSource = MediaStoreLocalDataSource(applicationContext)
+        val favoritesDataSource = FavoritesLocalDataSource(applicationContext)
         val repository = MediaRepositoryImpl(applicationContext, dataSource)
+
         val getPhotosUseCase = GetPhotosUseCase(repository)
         val getAlbumsUseCase = GetAlbumsUseCase(repository)
+        val deletePhotosUseCase = DeletePhotosUseCase(repository)
+        val movePhotosUseCase = MovePhotosUseCase(repository)
+        val copyPhotosUseCase = CopyPhotosUseCase(repository)
+        val getFavoritePhotoIdsUseCase = GetFavoritePhotoIdsUseCase(favoritesDataSource)
+        val toggleFavoriteUseCase = ToggleFavoriteUseCase(favoritesDataSource)
 
         val galleryViewModelFactory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return GalleryViewModel(getPhotosUseCase, getAlbumsUseCase) as T
+                return GalleryViewModel(
+                    getPhotosUseCase = getPhotosUseCase,
+                    getAlbumsUseCase = getAlbumsUseCase,
+                    deletePhotosUseCase = deletePhotosUseCase,
+                    movePhotosUseCase = movePhotosUseCase,
+                    copyPhotosUseCase = copyPhotosUseCase,
+                    getFavoritePhotoIdsUseCase = getFavoritePhotoIdsUseCase,
+                    toggleFavoriteUseCase = toggleFavoriteUseCase
+                ) as T
             }
         }
 
@@ -60,7 +75,7 @@ class MainActivity : ComponentActivity() {
                         navController = navController,
                         startDestination = "gallery"
                     ) {
-                        // 1. Galería
+                        // 1. Galeria Principal
                         composable("gallery") {
                             GalleryScreen(
                                 viewModel = galleryViewModel,
@@ -73,18 +88,25 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // 2. Detalle del Álbum
+                        // 2. Detalle del Album
                         composable(
                             route = "album_detail/{albumName}",
                             arguments = listOf(navArgument("albumName") { type = NavType.StringType })
                         ) { backStackEntry ->
                             val albumName = backStackEntry.arguments?.getString("albumName") ?: ""
-                            
+
                             val detailViewModel: AlbumDetailViewModel = viewModel(
                                 factory = object : ViewModelProvider.Factory {
                                     @Suppress("UNCHECKED_CAST")
                                     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                                        return AlbumDetailViewModel(albumName, getPhotosUseCase) as T
+                                        return AlbumDetailViewModel(
+                                            albumName = albumName,
+                                            getPhotosUseCase = getPhotosUseCase,
+                                            getAlbumsUseCase = getAlbumsUseCase,
+                                            deletePhotosUseCase = deletePhotosUseCase,
+                                            movePhotosUseCase = movePhotosUseCase,
+                                            copyPhotosUseCase = copyPhotosUseCase
+                                        ) as T
                                     }
                                 }
                             )
@@ -93,13 +115,12 @@ class MainActivity : ComponentActivity() {
                                 viewModel = detailViewModel,
                                 onBackClick = { navController.popBackStack() },
                                 onPhotoClick = { photo ->
-                                    // Pasamos el ID y el nombre del álbum
                                     navController.navigate("viewer/${photo.id}?albumName=${Uri.encode(albumName)}")
                                 }
                             )
                         }
 
-                        // 3. VISOR ACTUALIZADO
+                        // 3. Visor de Fotos
                         composable(
                             route = "viewer/{photoId}?albumName={albumName}",
                             arguments = listOf(
@@ -115,7 +136,17 @@ class MainActivity : ComponentActivity() {
                                 factory = object : ViewModelProvider.Factory {
                                     @Suppress("UNCHECKED_CAST")
                                     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                                        return ViewerViewModel(photoId, albumName, getPhotosUseCase) as T
+                                        return ViewerViewModel(
+                                            initialPhotoId = photoId,
+                                            albumName = albumName,
+                                            getPhotosUseCase = getPhotosUseCase,
+                                            getAlbumsUseCase = getAlbumsUseCase,
+                                            deletePhotosUseCase = deletePhotosUseCase,
+                                            movePhotosUseCase = movePhotosUseCase,
+                                            copyPhotosUseCase = copyPhotosUseCase,
+                                            getFavoritePhotoIdsUseCase = getFavoritePhotoIdsUseCase,
+                                            toggleFavoriteUseCase = toggleFavoriteUseCase
+                                        ) as T
                                     }
                                 }
                             )
