@@ -1,8 +1,10 @@
 package com.jhendefr.pixelupia.ui.viewer
 
 import android.content.IntentSender
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jhendefr.pixelupia.data.ocr.DetailedOcrResult
 import com.jhendefr.pixelupia.domain.model.MediaOperationResult
 import com.jhendefr.pixelupia.domain.model.Photo
 import com.jhendefr.pixelupia.domain.usecase.*
@@ -25,7 +27,14 @@ data class ViewerUiState(
     val userMessage: String? = null,
     val isPhotoDeleted: Boolean = false,
     val pendingIntentSender: IntentSender? = null,
-    val isDeletePendingApproval: Boolean = false
+    val isDeletePendingApproval: Boolean = false,
+
+    // Estado del Motor OCR Interactivo
+    val isOcrScanning: Boolean = false,
+    val ocrResult: DetailedOcrResult? = null,
+    val selectedBlockId: String? = null,
+    val showOcrOverlay: Boolean = false,
+    val showOcrDetailsSheet: Boolean = false
 )
 
 sealed interface ViewerEvent {
@@ -42,6 +51,12 @@ sealed interface ViewerEvent {
     object OnIntentSenderCompleted : ViewerEvent
     object OnIntentSenderDismissed : ViewerEvent
     object ClearUserMessage : ViewerEvent
+
+    // Eventos OCR Interactivo
+    data class TriggerInteractiveOcr(val photoUri: Uri) : ViewerEvent
+    data class SelectTextBlock(val blockId: String?) : ViewerEvent
+    object ToggleOcrDetailsSheet : ViewerEvent
+    object CloseOcrOverlay : ViewerEvent
 }
 
 class ViewerViewModel(
@@ -53,7 +68,8 @@ class ViewerViewModel(
     private val movePhotosUseCase: MovePhotosUseCase,
     private val copyPhotosUseCase: CopyPhotosUseCase,
     private val getFavoritePhotoIdsUseCase: GetFavoritePhotoIdsUseCase,
-    private val toggleFavoriteUseCase: ToggleFavoriteUseCase
+    private val toggleFavoriteUseCase: ToggleFavoriteUseCase,
+    private val runInteractiveOcrUseCase: RunInteractiveOcrUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ViewerUiState())
@@ -75,6 +91,46 @@ class ViewerViewModel(
 
     fun onEvent(event: ViewerEvent) {
         when (event) {
+            is ViewerEvent.TriggerInteractiveOcr -> {
+                _uiState.update { it.copy(isOcrScanning = true, showOcrOverlay = true, selectedBlockId = null) }
+                viewModelScope.launch {
+                    val result = runInteractiveOcrUseCase(event.photoUri)
+                    result.onSuccess { detailed ->
+                        _uiState.update {
+                            it.copy(
+                                isOcrScanning = false,
+                                ocrResult = detailed,
+                                showOcrDetailsSheet = true,
+                                userMessage = if (detailed.blocks.isNotEmpty()) "${detailed.blocks.size} bloques de texto detectados" else "No se detecto texto en la imagen"
+                            )
+                        }
+                    }.onFailure { err ->
+                        _uiState.update {
+                            it.copy(
+                                isOcrScanning = false,
+                                showOcrOverlay = false,
+                                userMessage = "Error en OCR: ${err.message}"
+                            )
+                        }
+                    }
+                }
+            }
+            is ViewerEvent.SelectTextBlock -> {
+                _uiState.update { it.copy(selectedBlockId = event.blockId, showOcrDetailsSheet = true) }
+            }
+            ViewerEvent.ToggleOcrDetailsSheet -> {
+                _uiState.update { it.copy(showOcrDetailsSheet = !it.showOcrDetailsSheet) }
+            }
+            ViewerEvent.CloseOcrOverlay -> {
+                _uiState.update {
+                    it.copy(
+                        showOcrOverlay = false,
+                        showOcrDetailsSheet = false,
+                        ocrResult = null,
+                        selectedBlockId = null
+                    )
+                }
+            }
             is ViewerEvent.ToggleFavorite -> {
                 val isFav = toggleFavoriteUseCase(event.photoId)
                 _uiState.update {

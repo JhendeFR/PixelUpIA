@@ -1,6 +1,8 @@
 package com.jhendefr.pixelupia
 
+import android.app.Activity
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,6 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -18,8 +21,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.jhendefr.pixelupia.data.local.FavoritesLocalDataSource
+import com.jhendefr.pixelupia.data.local.room.SnapVaultDatabase
 import com.jhendefr.pixelupia.data.media.MediaStoreLocalDataSource
+import com.jhendefr.pixelupia.data.ocr.TextRecognitionDataSource
 import com.jhendefr.pixelupia.data.repository.MediaRepositoryImpl
+import com.jhendefr.pixelupia.data.repository.SmartPhotoRepositoryImpl
 import com.jhendefr.pixelupia.domain.usecase.*
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailScreen
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailViewModel
@@ -28,15 +34,27 @@ import com.jhendefr.pixelupia.ui.gallery.GalleryViewModel
 import com.jhendefr.pixelupia.ui.theme.PixelUpIATheme
 import com.jhendefr.pixelupia.ui.viewer.ViewerScreen
 import com.jhendefr.pixelupia.ui.viewer.ViewerViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    private var screenCaptureCallback: Activity.ScreenCaptureCallback? = null
+    private lateinit var mediaStoreDataSource: MediaStoreLocalDataSource
+    private lateinit var indexScreenshotUseCase: IndexScreenshotUseCase
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val dataSource = MediaStoreLocalDataSource(applicationContext)
+        mediaStoreDataSource = MediaStoreLocalDataSource(applicationContext)
         val favoritesDataSource = FavoritesLocalDataSource(applicationContext)
-        val repository = MediaRepositoryImpl(applicationContext, dataSource)
+        val repository = MediaRepositoryImpl(applicationContext, mediaStoreDataSource)
+
+        val snapVaultDb = SnapVaultDatabase.getInstance(applicationContext)
+        val smartPhotoRepository = SmartPhotoRepositoryImpl(snapVaultDb.smartGalleryDao())
+        val textRecognitionDataSource = TextRecognitionDataSource(applicationContext)
 
         val getPhotosUseCase = GetPhotosUseCase(repository)
         val getAlbumsUseCase = GetAlbumsUseCase(repository)
@@ -45,6 +63,11 @@ class MainActivity : ComponentActivity() {
         val copyPhotosUseCase = CopyPhotosUseCase(repository)
         val getFavoritePhotoIdsUseCase = GetFavoritePhotoIdsUseCase(favoritesDataSource)
         val toggleFavoriteUseCase = ToggleFavoriteUseCase(favoritesDataSource)
+        val searchSmartPhotosUseCase = SearchSmartPhotosUseCase(smartPhotoRepository)
+        val getIndexedFoldersUseCase = GetIndexedFoldersUseCase(smartPhotoRepository)
+        indexScreenshotUseCase = IndexScreenshotUseCase(textRecognitionDataSource, smartPhotoRepository)
+        val processFolderOcrUseCase = ProcessFolderOcrUseCase(indexScreenshotUseCase, smartPhotoRepository)
+        val runInteractiveOcrUseCase = RunInteractiveOcrUseCase(textRecognitionDataSource)
 
         val galleryViewModelFactory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -56,7 +79,10 @@ class MainActivity : ComponentActivity() {
                     movePhotosUseCase = movePhotosUseCase,
                     copyPhotosUseCase = copyPhotosUseCase,
                     getFavoritePhotoIdsUseCase = getFavoritePhotoIdsUseCase,
-                    toggleFavoriteUseCase = toggleFavoriteUseCase
+                    toggleFavoriteUseCase = toggleFavoriteUseCase,
+                    searchSmartPhotosUseCase = searchSmartPhotosUseCase,
+                    getIndexedFoldersUseCase = getIndexedFoldersUseCase,
+                    processFolderOcrUseCase = processFolderOcrUseCase
                 ) as T
             }
         }
@@ -120,7 +146,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // 3. Visor de Fotos
+                        // 3. Visor de Fotos con OCR interactivo
                         composable(
                             route = "viewer/{photoId}?albumName={albumName}",
                             arguments = listOf(
@@ -145,7 +171,8 @@ class MainActivity : ComponentActivity() {
                                             movePhotosUseCase = movePhotosUseCase,
                                             copyPhotosUseCase = copyPhotosUseCase,
                                             getFavoritePhotoIdsUseCase = getFavoritePhotoIdsUseCase,
-                                            toggleFavoriteUseCase = toggleFavoriteUseCase
+                                            toggleFavoriteUseCase = toggleFavoriteUseCase,
+                                            runInteractiveOcrUseCase = runInteractiveOcrUseCase
                                         ) as T
                                     }
                                 }
@@ -158,6 +185,42 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                screenCaptureCallback = Activity.ScreenCaptureCallback {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        delay(700)
+                        val latestScreenshot = mediaStoreDataSource.fetchLatestScreenshot()
+                        if (latestScreenshot != null) {
+                            indexScreenshotUseCase(latestScreenshot)
+                        }
+                    }
+                }
+                registerScreenCaptureCallback(mainExecutor, screenCaptureCallback!!)
+            } catch (e: SecurityException) {
+                // Manejo de seguridad en caso de que el permiso no este disponible
+                screenCaptureCallback = null
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                screenCaptureCallback?.let { callback ->
+                    unregisterScreenCaptureCallback(callback)
+                }
+            } catch (e: Exception) {
+                // Ignorar error al desregistrar
+            } finally {
+                screenCaptureCallback = null
             }
         }
     }

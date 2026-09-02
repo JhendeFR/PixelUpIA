@@ -2,19 +2,26 @@ package com.jhendefr.pixelupia.ui.gallery
 
 import android.content.IntentSender
 import com.jhendefr.pixelupia.domain.model.Album
+import com.jhendefr.pixelupia.domain.model.IndexedFolderInfo
 import com.jhendefr.pixelupia.domain.model.Photo
 import com.jhendefr.pixelupia.domain.model.SortOrder
 
 enum class GalleryTab {
     PHOTOS,
     ALBUMS,
-    FAVORITES
+    SMART_AI
 }
 
 data class GalleryUiState(
     val isLoading: Boolean = true,
     val photos: List<Photo> = emptyList(),
     val albums: List<Album> = emptyList(),
+    val smartPhotos: List<Photo> = emptyList(),
+    val indexedFolders: List<IndexedFolderInfo> = emptyList(),
+    val selectedIndexedFolderName: String? = null,
+    val isBatchIndexing: Boolean = false,
+    val batchIndexingProgress: Pair<Int, Int>? = null,
+    val smartSearchQuery: String = "",
     val favoritePhotoIds: Set<Long> = emptySet(),
     val selectedTab: GalleryTab = GalleryTab.PHOTOS,
     val selectedAlbumName: String? = null,
@@ -30,7 +37,6 @@ data class GalleryUiState(
 ) {
     val isSelectionMode: Boolean get() = selectedPhotoIds.isNotEmpty()
     val selectedPhotos: List<Photo> get() = photos.filter { selectedPhotoIds.contains(it.id) }
-    val favoritePhotos: List<Photo> get() = photos.filter { favoritePhotoIds.contains(it.id) }
     val existingFolderNames: List<String> get() = albums.map { it.name }.distinct()
 }
 
@@ -38,8 +44,11 @@ sealed interface GalleryEvent {
     data class ChangeSortOrder(val newOrder: SortOrder) : GalleryEvent
     data class SelectTab(val tab: GalleryTab) : GalleryEvent
     data class SelectAlbum(val albumName: String?) : GalleryEvent
+    data class SelectIndexedFolder(val folderName: String?) : GalleryEvent
+    data class TriggerBatchIndexFolder(val folderName: String) : GalleryEvent
     data class TogglePhotoSelection(val photoId: Long) : GalleryEvent
     data class ToggleFavorite(val photoId: Long) : GalleryEvent
+    data class UpdateSmartSearchQuery(val query: String) : GalleryEvent
     object SelectAll : GalleryEvent
     object ClearSelection : GalleryEvent
     object Refresh : GalleryEvent
