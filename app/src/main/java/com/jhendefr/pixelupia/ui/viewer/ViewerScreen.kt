@@ -1,6 +1,7 @@
 package com.jhendefr.pixelupia.ui.viewer
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,6 +50,7 @@ import java.util.Locale
 @Composable
 fun ViewerScreen(
     viewModel: ViewerViewModel,
+    isFromAi: Boolean = false,
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -57,6 +59,11 @@ fun ViewerScreen(
     var showUI by remember { mutableStateOf(true) }
     var showInfoSheet by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+
+    // Retroceso nativo para cerrar overlay de OCR si está activo
+    BackHandler(enabled = uiState.showOcrOverlay) {
+        viewModel.onEvent(ViewerEvent.CloseOcrOverlay)
+    }
 
     val intentSenderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
@@ -270,33 +277,28 @@ fun ViewerScreen(
                             }
                         },
                         actions = {
-                            // Pildora para Probar OCR
-                            FilledTonalButton(
-                                onClick = {
-                                    if (uiState.showOcrOverlay) {
-                                        viewModel.onEvent(ViewerEvent.ToggleOcrDetailsSheet)
-                                    } else {
-                                        viewModel.onEvent(ViewerEvent.TriggerInteractiveOcr(currentPhoto.uri))
-                                    }
-                                },
-                                shape = CircleShape,
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = if (uiState.showOcrOverlay) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
-                                    contentColor = if (uiState.showOcrOverlay) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                                ),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (uiState.showOcrOverlay) "Ver Texto" else "Probar OCR",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                            if (uiState.showOcrOverlay) {
+                                FilledTonalButton(
+                                    onClick = { viewModel.onEvent(ViewerEvent.ToggleOcrDetailsSheet) },
+                                    shape = CircleShape,
+                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Description,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Ver Texto",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -361,16 +363,36 @@ fun ViewerScreen(
                         )
                     }
 
-                    // Informacion
-                    IconButton(
-                        onClick = { showInfoSheet = true },
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = "Informacion",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    // Informacion o Funcion IA (OCR)
+                    if (isFromAi) {
+                        val isOcrActive = uiState.showOcrOverlay
+                        IconButton(
+                            onClick = {
+                                if (uiState.showOcrOverlay) {
+                                    viewModel.onEvent(ViewerEvent.ToggleOcrDetailsSheet)
+                                } else {
+                                    viewModel.onEvent(ViewerEvent.TriggerInteractiveOcr(currentPhoto.uri))
+                                }
+                            },
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = if (isOcrActive) "Ver texto OCR" else "Escanear OCR",
+                                tint = if (isOcrActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { showInfoSheet = true },
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = "Informacion",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     // Eliminar
