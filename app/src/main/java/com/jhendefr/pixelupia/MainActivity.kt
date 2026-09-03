@@ -23,9 +23,15 @@ import androidx.navigation.navArgument
 import com.jhendefr.pixelupia.data.local.FavoritesLocalDataSource
 import com.jhendefr.pixelupia.data.local.room.SnapVaultDatabase
 import com.jhendefr.pixelupia.data.media.MediaStoreLocalDataSource
+import com.jhendefr.pixelupia.data.ml.BarcodeDataSource
+import com.jhendefr.pixelupia.data.ml.EntityExtractionDataSource
+import com.jhendefr.pixelupia.data.ml.FaceDetectionDataSource
+import com.jhendefr.pixelupia.data.ml.ImageLabelingDataSource
+import com.jhendefr.pixelupia.data.ml.ObjectDetectionDataSource
 import com.jhendefr.pixelupia.data.ocr.TextRecognitionDataSource
 import com.jhendefr.pixelupia.data.repository.MediaRepositoryImpl
 import com.jhendefr.pixelupia.data.repository.SmartPhotoRepositoryImpl
+import com.jhendefr.pixelupia.data.worker.WorkManagerScheduler
 import com.jhendefr.pixelupia.domain.usecase.*
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailScreen
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailViewModel
@@ -56,6 +62,13 @@ class MainActivity : ComponentActivity() {
         val smartPhotoRepository = SmartPhotoRepositoryImpl(snapVaultDb.smartGalleryDao())
         val textRecognitionDataSource = TextRecognitionDataSource(applicationContext)
 
+        // ML Kit Multimodal Data Sources
+        val barcodeDataSource = BarcodeDataSource(applicationContext)
+        val faceDetectionDataSource = FaceDetectionDataSource(applicationContext)
+        val imageLabelingDataSource = ImageLabelingDataSource(applicationContext)
+        val objectDetectionDataSource = ObjectDetectionDataSource(applicationContext, imageLabelingDataSource)
+        val entityExtractionDataSource = EntityExtractionDataSource()
+
         val getPhotosUseCase = GetPhotosUseCase(repository)
         val getAlbumsUseCase = GetAlbumsUseCase(repository)
         val deletePhotosUseCase = DeletePhotosUseCase(repository)
@@ -68,6 +81,25 @@ class MainActivity : ComponentActivity() {
         indexScreenshotUseCase = IndexScreenshotUseCase(textRecognitionDataSource, smartPhotoRepository)
         val processFolderOcrUseCase = ProcessFolderOcrUseCase(indexScreenshotUseCase, smartPhotoRepository)
         val runInteractiveOcrUseCase = RunInteractiveOcrUseCase(textRecognitionDataSource)
+
+        val enrichScreenshotUseCase = EnrichScreenshotUseCase(
+            barcodeDataSource = barcodeDataSource,
+            faceDetectionDataSource = faceDetectionDataSource,
+            imageLabelingDataSource = imageLabelingDataSource,
+            entityExtractionDataSource = entityExtractionDataSource,
+            smartGalleryDao = snapVaultDb.smartGalleryDao(),
+            textRecognitionDataSource = textRecognitionDataSource
+        )
+        val enrichFolderScreenshotsUseCase = EnrichFolderScreenshotsUseCase(
+            enrichScreenshotUseCase = enrichScreenshotUseCase,
+            smartGalleryDao = snapVaultDb.smartGalleryDao()
+        )
+        val getPhotoMultimodalMetadataUseCase = GetPhotoMultimodalMetadataUseCase(
+            smartGalleryDao = snapVaultDb.smartGalleryDao()
+        )
+
+        // Programar enriquecimiento multimodal periódico con WorkManager
+        WorkManagerScheduler.schedulePeriodicEnrichment(applicationContext)
 
         val galleryViewModelFactory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -82,7 +114,8 @@ class MainActivity : ComponentActivity() {
                     toggleFavoriteUseCase = toggleFavoriteUseCase,
                     searchSmartPhotosUseCase = searchSmartPhotosUseCase,
                     getIndexedFoldersUseCase = getIndexedFoldersUseCase,
-                    processFolderOcrUseCase = processFolderOcrUseCase
+                    processFolderOcrUseCase = processFolderOcrUseCase,
+                    enrichFolderScreenshotsUseCase = enrichFolderScreenshotsUseCase
                 ) as T
             }
         }
@@ -146,7 +179,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // 3. Visor de Fotos con OCR interactivo
+                        // 3. Visor de Fotos con Funciones IA
                         composable(
                             route = "viewer/{photoId}?albumName={albumName}&fromAi={fromAi}",
                             arguments = listOf(
@@ -174,7 +207,13 @@ class MainActivity : ComponentActivity() {
                                             copyPhotosUseCase = copyPhotosUseCase,
                                             getFavoritePhotoIdsUseCase = getFavoritePhotoIdsUseCase,
                                             toggleFavoriteUseCase = toggleFavoriteUseCase,
-                                            runInteractiveOcrUseCase = runInteractiveOcrUseCase
+                                            runInteractiveOcrUseCase = runInteractiveOcrUseCase,
+                                            enrichScreenshotUseCase = enrichScreenshotUseCase,
+                                            getPhotoMultimodalMetadataUseCase = getPhotoMultimodalMetadataUseCase,
+                                            faceDetectionDataSource = faceDetectionDataSource,
+                                            objectDetectionDataSource = objectDetectionDataSource,
+                                            barcodeDataSource = barcodeDataSource,
+                                            entityExtractionDataSource = entityExtractionDataSource
                                         ) as T
                                     }
                                 }
@@ -202,6 +241,7 @@ class MainActivity : ComponentActivity() {
                         val latestScreenshot = mediaStoreDataSource.fetchLatestScreenshot()
                         if (latestScreenshot != null) {
                             indexScreenshotUseCase(latestScreenshot)
+                            WorkManagerScheduler.triggerOneTimeEnrichment(applicationContext)
                         }
                     }
                 }

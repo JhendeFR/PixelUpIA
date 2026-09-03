@@ -30,12 +30,7 @@ class SmartPhotoRepositoryImpl(
                 textContent = textContent,
                 boundingBoxes = boundingBoxes
             )
-            val ftsEntity = SmartPhotoFtsEntity(
-                textContent = textContent,
-                boundingBoxes = boundingBoxes
-            )
             dao.insertPhoto(entity)
-            dao.insertPhotoFts(ftsEntity)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
