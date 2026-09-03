@@ -21,6 +21,8 @@ data class GalleryUiState(
     val selectedIndexedFolderName: String? = null,
     val isBatchIndexing: Boolean = false,
     val batchIndexingProgress: Pair<Int, Int>? = null,
+    val isFolderEnriching: Boolean = false,
+    val folderEnrichingProgress: Pair<Int, Int>? = null,
     val smartSearchQuery: String = "",
     val favoritePhotoIds: Set<Long> = emptySet(),
     val selectedTab: GalleryTab = GalleryTab.PHOTOS,
@@ -46,6 +48,7 @@ sealed interface GalleryEvent {
     data class SelectAlbum(val albumName: String?) : GalleryEvent
     data class SelectIndexedFolder(val folderName: String?) : GalleryEvent
     data class TriggerBatchIndexFolder(val folderName: String) : GalleryEvent
+    data class TriggerFolderMultimodalEnrichment(val folderName: String) : GalleryEvent
     data class TogglePhotoSelection(val photoId: Long) : GalleryEvent
     data class ToggleFavorite(val photoId: Long) : GalleryEvent
     data class UpdateSmartSearchQuery(val query: String) : GalleryEvent

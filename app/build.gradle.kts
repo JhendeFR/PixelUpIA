@@ -91,8 +91,16 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Google ML Kit Text Recognition
+    // Google ML Kit Text Recognition & Multimodal
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.mlkit.face.detection)
+    implementation(libs.mlkit.image.labeling)
+    implementation(libs.mlkit.entity.extraction)
+    implementation(libs.mlkit.objects)
+
+    // AndroidX WorkManager
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Testing
     testImplementation(libs.junit)

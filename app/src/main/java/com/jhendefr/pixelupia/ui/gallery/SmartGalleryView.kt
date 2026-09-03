@@ -33,11 +33,14 @@ fun SmartGalleryView(
     selectedIndexedFolder: String?,
     isBatchIndexing: Boolean,
     batchIndexingProgress: Pair<Int, Int>?,
+    isFolderEnriching: Boolean = false,
+    folderEnrichingProgress: Pair<Int, Int>? = null,
     selectedIds: Set<Long>,
     isSelectionMode: Boolean,
     onQueryChange: (String) -> Unit,
     onSelectFolder: (String?) -> Unit,
     onTriggerBatchIndex: (String) -> Unit,
+    onTriggerFolderEnrichment: (String) -> Unit = {},
     onPhotoClick: (Photo) -> Unit,
     onToggleSelection: (Long) -> Unit
 ) {
@@ -108,8 +111,11 @@ fun SmartGalleryView(
                         folder = folder,
                         isBatchIndexing = isBatchIndexing,
                         batchIndexingProgress = batchIndexingProgress,
+                        isFolderEnriching = isFolderEnriching,
+                        folderEnrichingProgress = folderEnrichingProgress,
                         onClick = { onSelectFolder(folder.name) },
-                        onTriggerBatchIndex = { onTriggerBatchIndex(folder.name) }
+                        onTriggerBatchIndex = { onTriggerBatchIndex(folder.name) },
+                        onTriggerFolderEnrichment = { onTriggerFolderEnrichment(folder.name) }
                     )
                 }
 
@@ -220,8 +226,11 @@ fun IndexedFolderCard(
     folder: IndexedFolderInfo,
     isBatchIndexing: Boolean,
     batchIndexingProgress: Pair<Int, Int>?,
+    isFolderEnriching: Boolean = false,
+    folderEnrichingProgress: Pair<Int, Int>? = null,
     onClick: () -> Unit,
-    onTriggerBatchIndex: () -> Unit
+    onTriggerBatchIndex: () -> Unit,
+    onTriggerFolderEnrichment: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -231,115 +240,155 @@ fun IndexedFolderCard(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Miniatura o Icono de Carpeta
-            Box(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                contentAlignment = Alignment.Center
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (folder.coverUri != null) {
-                    AsyncImage(
-                        model = folder.coverUri,
-                        contentDescription = folder.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.FolderSpecial,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
-                    )
+                // Miniatura o Icono de Carpeta
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (folder.coverUri != null) {
+                        AsyncImage(
+                            model = folder.coverUri,
+                            contentDescription = folder.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.FolderSpecial,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
-            // Información y Estado de Indexación
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = folder.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${folder.indexedPhotos} de ${folder.totalPhotos} imágenes indexadas (OCR)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                if (isBatchIndexing && batchIndexingProgress != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = {
-                            if (batchIndexingProgress.second > 0)
-                                batchIndexingProgress.first.toFloat() / batchIndexingProgress.second.toFloat()
-                            else 0f
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(CircleShape),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                // Información y Estado de Indexación
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = folder.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
                     )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Círculo de Progreso o Botón de Acción
-            Box(contentAlignment = Alignment.Center) {
-                if (isBatchIndexing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(36.dp),
-                        strokeWidth = 3.dp,
-                        color = MaterialTheme.colorScheme.primary
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${folder.indexedPhotos} de ${folder.totalPhotos} capturas indexadas",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                } else if (!folder.isCompleted && folder.totalPhotos > 0) {
-                    IconButton(
-                        onClick = onTriggerBatchIndex,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            progress = { folder.progress },
-                            modifier = Modifier.size(36.dp),
-                            strokeWidth = 3.dp,
+
+                    if (isBatchIndexing && batchIndexingProgress != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = {
+                                if (batchIndexingProgress.second > 0)
+                                    batchIndexingProgress.first.toFloat() / batchIndexingProgress.second.toFloat()
+                                else 0f
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(CircleShape),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                        )
+                    } else if (isFolderEnriching && folderEnrichingProgress != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = {
+                                if (folderEnrichingProgress.second > 0)
+                                    folderEnrichingProgress.first.toFloat() / folderEnrichingProgress.second.toFloat()
+                                else 0f
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(CircleShape),
                             color = MaterialTheme.colorScheme.secondary,
                             trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                         )
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Indexar todo",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
                     }
-                } else {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Círculo de Progreso o Botón de Acción
+                Box(contentAlignment = Alignment.Center) {
+                    if (isBatchIndexing || isFolderEnriching) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(36.dp),
+                            strokeWidth = 3.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else if (!folder.isCompleted && folder.totalPhotos > 0) {
+                        IconButton(
+                            onClick = onTriggerBatchIndex,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                progress = { folder.progress },
+                                modifier = Modifier.size(36.dp),
+                                strokeWidth = 3.dp,
+                                color = MaterialTheme.colorScheme.secondary,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
                             Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Indexado",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(20.dp)
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Indexar todo",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
+                    } else {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Indexado",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                     }
+                }
+            }
+
+            // Barra inferior de acciones IA de la carpeta
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                OutlinedButton(
+                    onClick = onTriggerFolderEnrichment,
+                    enabled = !isFolderEnriching,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isFolderEnriching) "Analizando..." else "Analizar Todo (Multimodal)",
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
             }
         }

@@ -19,7 +19,8 @@ class GalleryViewModel(
     private val toggleFavoriteUseCase: ToggleFavoriteUseCase,
     private val searchSmartPhotosUseCase: SearchSmartPhotosUseCase,
     private val getIndexedFoldersUseCase: GetIndexedFoldersUseCase,
-    private val processFolderOcrUseCase: ProcessFolderOcrUseCase
+    private val processFolderOcrUseCase: ProcessFolderOcrUseCase,
+    private val enrichFolderScreenshotsUseCase: EnrichFolderScreenshotsUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GalleryUiState())
@@ -89,6 +90,25 @@ class GalleryViewModel(
                             isBatchIndexing = false,
                             batchIndexingProgress = null,
                             userMessage = "Indexacion OCR completada"
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.TriggerFolderMultimodalEnrichment -> {
+                val folderPhotos = _uiState.value.photos.filter {
+                    it.folderName.equals(event.folderName, ignoreCase = true) ||
+                            it.folderName.contains(event.folderName, ignoreCase = true)
+                }
+                _uiState.update { it.copy(isFolderEnriching = true) }
+                viewModelScope.launch {
+                    enrichFolderScreenshotsUseCase(folderPhotos) { current, total ->
+                        _uiState.update { it.copy(folderEnrichingProgress = Pair(current, total)) }
+                    }
+                    _uiState.update {
+                        it.copy(
+                            isFolderEnriching = false,
+                            folderEnrichingProgress = null,
+                            userMessage = "Analisis multimodal completado para $event.folderName"
                         )
                     }
                 }

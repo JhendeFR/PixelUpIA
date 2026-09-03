@@ -10,9 +10,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -60,9 +62,21 @@ fun ViewerScreen(
     var showInfoSheet by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
 
-    // Retroceso nativo para cerrar overlay de OCR si está activo
-    BackHandler(enabled = uiState.showOcrOverlay) {
-        viewModel.onEvent(ViewerEvent.CloseOcrOverlay)
+    // Retroceso nativo escalonado: sheet multimodal -> sheet ocr -> overlay bounding boxes -> modo IA
+    BackHandler(enabled = uiState.showMultimodalDetailsSheet) {
+        viewModel.onEvent(ViewerEvent.DismissMultimodalDetailsSheet)
+    }
+
+    BackHandler(enabled = !uiState.showMultimodalDetailsSheet && uiState.showOcrDetailsSheet) {
+        viewModel.onEvent(ViewerEvent.ToggleOcrDetailsSheet)
+    }
+
+    BackHandler(enabled = !uiState.showMultimodalDetailsSheet && !uiState.showOcrDetailsSheet && uiState.activeAiMode != ActiveAiMode.NONE) {
+        viewModel.onEvent(ViewerEvent.CloseDetectionOverlay)
+    }
+
+    BackHandler(enabled = !uiState.showMultimodalDetailsSheet && !uiState.showOcrDetailsSheet && uiState.activeAiMode == ActiveAiMode.NONE && uiState.isAiModeActive) {
+        viewModel.onEvent(ViewerEvent.CloseAiMode)
     }
 
     val intentSenderLauncher = rememberLauncherForActivityResult(
@@ -131,6 +145,14 @@ fun ViewerScreen(
 
     val currentPhoto = uiState.photos.getOrNull(pagerState.currentPage) ?: uiState.photos.first()
 
+    LaunchedEffect(pagerState.currentPage) {
+        val photo = uiState.photos.getOrNull(pagerState.currentPage)
+        if (photo != null) {
+            viewModel.onEvent(ViewerEvent.LoadPhotoMetadata(photo.id))
+            viewModel.onEvent(ViewerEvent.CloseDetectionOverlay)
+        }
+    }
+
     // Dialogos de Gestion
     if (uiState.showDeleteConfirm) {
         ConfirmDeleteDialog(
@@ -158,7 +180,7 @@ fun ViewerScreen(
         )
     }
 
-    // BottomSheet para Metadatos con Superficie Tonal M3E
+    // BottomSheet para Metadatos Estandar
     if (showInfoSheet) {
         ModalBottomSheet(
             onDismissRequest = { showInfoSheet = false },
@@ -180,6 +202,20 @@ fun ViewerScreen(
         )
     }
 
+    // BottomSheet para Analisis Multimodal Completo (Toda la Imagen)
+    if (uiState.showMultimodalDetailsSheet) {
+        MultimodalDetailsBottomSheet(
+            metadata = uiState.multimodalMetadata,
+            isEnriching = uiState.isEnriching,
+            onTriggerEnrichment = {
+                viewModel.onEvent(ViewerEvent.TriggerFullMultimodalEnrichment(currentPhoto))
+            },
+            onDismiss = {
+                viewModel.onEvent(ViewerEvent.DismissMultimodalDetailsSheet)
+            }
+        )
+    }
+
     var isPagerEnabled by remember { mutableStateOf(true) }
 
     Box(
@@ -191,7 +227,7 @@ fun ViewerScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = isPagerEnabled && !uiState.showOcrOverlay,
+            userScrollEnabled = isPagerEnabled && uiState.activeAiMode == ActiveAiMode.NONE,
             pageSpacing = 16.dp
         ) { page ->
             val photo = uiState.photos[page]
@@ -203,21 +239,23 @@ fun ViewerScreen(
             )
         }
 
-        // Overlay de Bounding Boxes de OCR (Si está activo)
-        if (uiState.showOcrOverlay && uiState.ocrResult != null) {
-            OcrBoundingBoxOverlay(
-                ocrResult = uiState.ocrResult!!,
-                selectedBlockId = uiState.selectedBlockId,
-                onSelectBlock = { viewModel.onEvent(ViewerEvent.SelectTextBlock(it)) },
+        // Overlay Universal de Bounding Boxes (para cualquier modelo de IA activo)
+        if (uiState.activeAiMode != ActiveAiMode.NONE && uiState.activeBoundingBoxes.isNotEmpty()) {
+            UniversalAiOverlay(
+                boxes = uiState.activeBoundingBoxes,
+                imageWidth = uiState.activeImageDimensions.first,
+                imageHeight = uiState.activeImageDimensions.second,
+                selectedId = uiState.selectedDetectionId,
+                onSelectItem = { viewModel.onEvent(ViewerEvent.SelectDetectionBox(it)) },
                 modifier = Modifier.fillMaxSize()
             )
         }
 
-        // Indicador de Escaneo OCR en Progreso
-        if (uiState.isOcrScanning) {
+        // Indicador de Análisis de Modelo Independiente en Progreso
+        if (uiState.isAnalyzingModel) {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(24.dp)
@@ -233,7 +271,35 @@ fun ViewerScreen(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "Analizando con OCR...",
+                        text = uiState.modelAnalysisTitle ?: "Analizando...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Indicador de Enriquecimiento Multimodal Completo en Progreso
+        if (uiState.isEnriching) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Text(
+                        text = "Ejecutando analisis completo de todos los modelos...",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
@@ -277,25 +343,25 @@ fun ViewerScreen(
                             }
                         },
                         actions = {
-                            if (uiState.showOcrOverlay) {
+                            if (uiState.activeAiMode != ActiveAiMode.NONE) {
                                 FilledTonalButton(
-                                    onClick = { viewModel.onEvent(ViewerEvent.ToggleOcrDetailsSheet) },
+                                    onClick = { viewModel.onEvent(ViewerEvent.CloseDetectionOverlay) },
                                     shape = CircleShape,
                                     colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                                     ),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Description,
+                                        imageVector = Icons.Default.VisibilityOff,
                                         contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Ver Texto",
-                                        style = MaterialTheme.typography.labelMedium,
+                                        text = "Ocultar Cajas",
+                                        style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
@@ -316,7 +382,7 @@ fun ViewerScreen(
                     slideOutVertically(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp)
+                .padding(bottom = 32.dp, start = 12.dp, end = 12.dp)
                 .navigationBarsPadding()
         ) {
             Surface(
@@ -325,123 +391,247 @@ fun ViewerScreen(
                 tonalElevation = 6.dp,
                 shadowElevation = 8.dp
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Favorito con Animacion de Rebote
-                    val isFavorite = uiState.favoritePhotoIds.contains(currentPhoto.id)
-                    val favScale by animateFloatAsState(
-                        targetValue = if (isFavorite) 1.2f else 1f,
-                        animationSpec = PixelUpIAMotion.spatialFloatSpring,
-                        label = "FavScale"
-                    )
-
-                    IconButton(
-                        onClick = { viewModel.onEvent(ViewerEvent.ToggleFavorite(currentPhoto.id)) },
-                        modifier = Modifier
-                            .scale(favScale)
-                            .minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                            contentDescription = "Favorito",
-                            tint = if (isFavorite) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Compartir
-                    IconButton(
-                        onClick = { sharePhotos(context, listOf(currentPhoto)) },
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            Icons.Default.Share,
-                            contentDescription = "Compartir",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Informacion o Funcion IA (OCR)
-                    if (isFromAi) {
-                        val isOcrActive = uiState.showOcrOverlay
-                        IconButton(
-                            onClick = {
-                                if (uiState.showOcrOverlay) {
-                                    viewModel.onEvent(ViewerEvent.ToggleOcrDetailsSheet)
-                                } else {
-                                    viewModel.onEvent(ViewerEvent.TriggerInteractiveOcr(currentPhoto.uri))
-                                }
-                            },
-                            modifier = Modifier.minimumInteractiveComponentSize()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = if (isOcrActive) "Ver texto OCR" else "Escanear OCR",
-                                tint = if (isOcrActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                AnimatedContent(
+                    targetState = uiState.isAiModeActive,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = PixelUpIAMotion.effectsFloatSpring) +
+                                slideInHorizontally(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { it / 3 })
+                            .togetherWith(
+                                fadeOut(animationSpec = PixelUpIAMotion.effectsFloatSpring) +
+                                        slideOutHorizontally(animationSpec = PixelUpIAMotion.spatialIntOffsetSpring) { -it / 3 }
                             )
+                    },
+                    label = "BottomBarPillTransition"
+                ) { isAiActive ->
+                    if (isAiActive) {
+                        // Píldora de Funciones IA: Modelos Independientes + Análisis Completo Separado
+                        Row(
+                            modifier = Modifier
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // 1. TEXTO (OCR) INDEPENDIENTE
+                            val isOcrActive = uiState.activeAiMode == ActiveAiMode.OCR
+                            IconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.TriggerInteractiveOcr(currentPhoto.uri)) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.TextFields,
+                                    contentDescription = "Texto OCR",
+                                    tint = if (isOcrActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // 2. ROSTROS INDEPENDIENTE
+                            val isFacesActive = uiState.activeAiMode == ActiveAiMode.FACES
+                            IconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.TriggerFaceDetection(currentPhoto.uri)) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Face,
+                                    contentDescription = "Rostros",
+                                    tint = if (isFacesActive) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // 3. OBJETOS Y PRECISIÓN INDEPENDIENTE
+                            val isObjectsActive = uiState.activeAiMode == ActiveAiMode.OBJECTS
+                            IconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.TriggerObjectDetection(currentPhoto.uri)) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Category,
+                                    contentDescription = "Objetos y precision",
+                                    tint = if (isObjectsActive) Color(0xFF00B0FF) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // 4. CÓDIGOS DE BARRAS / QR INDEPENDIENTE
+                            val isBarcodesActive = uiState.activeAiMode == ActiveAiMode.BARCODES
+                            IconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.TriggerBarcodeScanning(currentPhoto.uri)) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.QrCode,
+                                    contentDescription = "Codigos QR",
+                                    tint = if (isBarcodesActive) Color(0xFFFF9100) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // 5. ENTIDADES INDEPENDIENTE
+                            val isEntitiesActive = uiState.activeAiMode == ActiveAiMode.ENTITIES
+                            IconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.TriggerEntityExtraction(currentPhoto.uri)) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Link,
+                                    contentDescription = "Entidades",
+                                    tint = if (isEntitiesActive) Color(0xFF7C4DFF) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Separador Vertical
+                            VerticalDivider(
+                                modifier = Modifier
+                                    .height(26.dp)
+                                    .padding(horizontal = 2.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            )
+
+                            // 6. BOTÓN SEPARADO: ANÁLISIS MULTIMODAL COMPLETO (TODA LA IMAGEN)
+                            FilledTonalButton(
+                                onClick = {
+                                    if (uiState.multimodalMetadata?.isEnriched == true) {
+                                        viewModel.onEvent(ViewerEvent.ToggleMultimodalDetailsSheet)
+                                    } else {
+                                        viewModel.onEvent(ViewerEvent.TriggerFullMultimodalEnrichment(currentPhoto))
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = CircleShape
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (uiState.multimodalMetadata?.isEnriched == true) "Ver Datos" else "Completo",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            // 7. BOTÓN PARA SALIR DEL MODO IA
+                            FilledTonalIconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.CloseAiMode) },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cerrar modo IA",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     } else {
-                        IconButton(
-                            onClick = { showInfoSheet = true },
-                            modifier = Modifier.minimumInteractiveComponentSize()
+                        // Barra Estándar (Favorito, Compartir, Activar Modo IA, Eliminar, Más Opciones)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Default.Info,
-                                contentDescription = "Informacion",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            val isFavorite = uiState.favoritePhotoIds.contains(currentPhoto.id)
+                            val favScale by animateFloatAsState(
+                                targetValue = if (isFavorite) 1.2f else 1f,
+                                animationSpec = PixelUpIAMotion.spatialFloatSpring,
+                                label = "FavScale"
                             )
-                        }
-                    }
 
-                    // Eliminar
-                    IconButton(
-                        onClick = { viewModel.onEvent(ViewerEvent.RequestDelete(currentPhoto)) },
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Eliminar",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
+                            IconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.ToggleFavorite(currentPhoto.id)) },
+                                modifier = Modifier
+                                    .scale(favScale)
+                                    .minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                                    contentDescription = "Favorito",
+                                    tint = if (isFavorite) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
 
-                    // Mas Opciones (Mover / Copiar)
-                    Box {
-                        IconButton(
-                            onClick = { showMoreMenu = true },
-                            modifier = Modifier.minimumInteractiveComponentSize()
-                        ) {
-                            Icon(
-                                Icons.Default.MoreVert,
-                                contentDescription = "Mas opciones",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showMoreMenu,
-                            onDismissRequest = { showMoreMenu = false },
-                            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Mover a carpeta") },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    viewModel.onEvent(ViewerEvent.RequestMove(currentPhoto))
-                                },
+                            IconButton(
+                                onClick = { sharePhotos(context, listOf(currentPhoto)) },
                                 modifier = Modifier.minimumInteractiveComponentSize()
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Copiar a carpeta") },
-                                leadingIcon = { Icon(Icons.Default.FileCopy, contentDescription = null) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    viewModel.onEvent(ViewerEvent.RequestCopy(currentPhoto))
-                                },
+                            ) {
+                                Icon(
+                                    Icons.Default.Share,
+                                    contentDescription = "Compartir",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Botón de IA: Al presionarlo, transmuta la píldora por las funciones de IA
+                            if (isFromAi) {
+                                IconButton(
+                                    onClick = { viewModel.onEvent(ViewerEvent.ToggleAiMode) },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "Activar funciones IA",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            } else {
+                                IconButton(
+                                    onClick = { showInfoSheet = true },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = "Informacion",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.RequestDelete(currentPhoto)) },
                                 modifier = Modifier.minimumInteractiveComponentSize()
-                            )
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Eliminar",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+
+                            Box {
+                                IconButton(
+                                    onClick = { showMoreMenu = true },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        Icons.Default.MoreVert,
+                                        contentDescription = "Mas opciones",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showMoreMenu,
+                                    onDismissRequest = { showMoreMenu = false },
+                                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Mover a carpeta") },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            viewModel.onEvent(ViewerEvent.RequestMove(currentPhoto))
+                                        },
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Copiar a carpeta") },
+                                        leadingIcon = { Icon(Icons.Default.FileCopy, contentDescription = null) },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            viewModel.onEvent(ViewerEvent.RequestCopy(currentPhoto))
+                                        },
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    )
+                                }
+                            }
                         }
                     }
                 }

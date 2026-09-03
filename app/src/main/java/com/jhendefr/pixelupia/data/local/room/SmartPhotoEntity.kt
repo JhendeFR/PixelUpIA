@@ -12,5 +12,10 @@ data class SmartPhotoEntity(
     val folderName: String,
     val dateAdded: Long,
     val textContent: String = "",
-    val boundingBoxes: String = "[]"
+    val boundingBoxes: String = "[]",
+    val hasFaces: Boolean = false,
+    val barcodes: List<String> = emptyList(),
+    val labels: List<String> = emptyList(),
+    val entities: List<String> = emptyList(),
+    val isEnriched: Boolean = false
 )

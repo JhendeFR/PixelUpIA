@@ -9,9 +9,6 @@ interface SmartGalleryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPhoto(photo: SmartPhotoEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertPhotoFts(fts: SmartPhotoFtsEntity): Long
-
     @Query("SELECT * FROM smart_photos WHERE photoId = :photoId")
     suspend fun getPhotoById(photoId: Long): SmartPhotoEntity?
 
@@ -31,6 +28,34 @@ interface SmartGalleryDao {
         ORDER BY p.dateAdded DESC
     """)
     fun searchPhotosByText(query: String): Flow<List<SmartPhotoEntity>>
+
+    @Query("""
+        SELECT * FROM smart_photos 
+        WHERE isEnriched = 0 
+        AND (folderName LIKE '%screenshot%' OR folderName = 'Screenshots')
+        ORDER BY dateAdded DESC
+    """)
+    suspend fun getUnenrichedScreenshots(): List<SmartPhotoEntity>
+
+    @Query("""
+        UPDATE smart_photos 
+        SET hasFaces = :hasFaces, 
+            barcodes = :barcodes, 
+            labels = :labels, 
+            entities = :entities, 
+            isEnriched = 1 
+        WHERE photoId = :photoId
+    """)
+    suspend fun updateEnrichment(
+        photoId: Long,
+        hasFaces: Boolean,
+        barcodes: List<String>,
+        labels: List<String>,
+        entities: List<String>
+    ): Int
+
+    @Query("SELECT COUNT(*) FROM smart_photos WHERE isEnriched = 1")
+    fun getEnrichedCount(): Flow<Int>
 
     @Query("DELETE FROM smart_photos WHERE photoId = :photoId")
     suspend fun deletePhotoById(photoId: Long): Int

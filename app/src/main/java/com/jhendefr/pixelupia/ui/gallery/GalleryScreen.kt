@@ -350,11 +350,14 @@ fun GalleryScreen(
                                 selectedIndexedFolder = uiState.selectedIndexedFolderName,
                                 isBatchIndexing = uiState.isBatchIndexing,
                                 batchIndexingProgress = uiState.batchIndexingProgress,
+                                isFolderEnriching = uiState.isFolderEnriching,
+                                folderEnrichingProgress = uiState.folderEnrichingProgress,
                                 selectedIds = uiState.selectedPhotoIds,
                                 isSelectionMode = uiState.isSelectionMode,
                                 onQueryChange = { viewModel.onEvent(GalleryEvent.UpdateSmartSearchQuery(it)) },
                                 onSelectFolder = { viewModel.onEvent(GalleryEvent.SelectIndexedFolder(it)) },
                                 onTriggerBatchIndex = { viewModel.onEvent(GalleryEvent.TriggerBatchIndexFolder(it)) },
+                                onTriggerFolderEnrichment = { viewModel.onEvent(GalleryEvent.TriggerFolderMultimodalEnrichment(it)) },
                                 onPhotoClick = { photo -> onPhotoClick(photo, true) },
                                 onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
                             )
