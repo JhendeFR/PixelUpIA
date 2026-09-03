@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,13 +52,26 @@ import java.util.ArrayList
 @Composable
 fun GalleryScreen(
     viewModel: GalleryViewModel,
-    onPhotoClick: (Photo) -> Unit = {},
+    onPhotoClick: (Photo, Boolean) -> Unit = { _, _ -> },
     onAlbumClick: (Album) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showSortMenu by remember { mutableStateOf(false) }
+
+    // Manejo de retroceso nativo de Android
+    BackHandler(enabled = uiState.isSelectionMode) {
+        viewModel.onEvent(GalleryEvent.ClearSelection)
+    }
+
+    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedIndexedFolderName != null) {
+        viewModel.onEvent(GalleryEvent.SelectIndexedFolder(null))
+    }
+
+    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedIndexedFolderName == null && uiState.selectedTab != GalleryTab.PHOTOS) {
+        viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.PHOTOS))
+    }
 
     val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
@@ -317,7 +331,7 @@ fun GalleryScreen(
                                 photos = uiState.photos,
                                 selectedIds = uiState.selectedPhotoIds,
                                 isSelectionMode = uiState.isSelectionMode,
-                                onPhotoClick = onPhotoClick,
+                                onPhotoClick = { photo -> onPhotoClick(photo, false) },
                                 onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
                             )
                         }
@@ -341,7 +355,7 @@ fun GalleryScreen(
                                 onQueryChange = { viewModel.onEvent(GalleryEvent.UpdateSmartSearchQuery(it)) },
                                 onSelectFolder = { viewModel.onEvent(GalleryEvent.SelectIndexedFolder(it)) },
                                 onTriggerBatchIndex = { viewModel.onEvent(GalleryEvent.TriggerBatchIndexFolder(it)) },
-                                onPhotoClick = onPhotoClick,
+                                onPhotoClick = { photo -> onPhotoClick(photo, true) },
                                 onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
                             )
                         }

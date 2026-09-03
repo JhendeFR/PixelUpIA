@@ -105,8 +105,8 @@ class MainActivity : ComponentActivity() {
                         composable("gallery") {
                             GalleryScreen(
                                 viewModel = galleryViewModel,
-                                onPhotoClick = { selectedPhoto ->
-                                    navController.navigate("viewer/${selectedPhoto.id}")
+                                onPhotoClick = { selectedPhoto, fromAi ->
+                                    navController.navigate("viewer/${selectedPhoto.id}?fromAi=$fromAi")
                                 },
                                 onAlbumClick = { album ->
                                     navController.navigate("album_detail/${Uri.encode(album.name)}")
@@ -141,22 +141,24 @@ class MainActivity : ComponentActivity() {
                                 viewModel = detailViewModel,
                                 onBackClick = { navController.popBackStack() },
                                 onPhotoClick = { photo ->
-                                    navController.navigate("viewer/${photo.id}?albumName=${Uri.encode(albumName)}")
+                                    navController.navigate("viewer/${photo.id}?albumName=${Uri.encode(albumName)}&fromAi=false")
                                 }
                             )
                         }
 
                         // 3. Visor de Fotos con OCR interactivo
                         composable(
-                            route = "viewer/{photoId}?albumName={albumName}",
+                            route = "viewer/{photoId}?albumName={albumName}&fromAi={fromAi}",
                             arguments = listOf(
                                 navArgument("photoId") { type = NavType.LongType },
-                                navArgument("albumName") { type = NavType.StringType; nullable = true }
+                                navArgument("albumName") { type = NavType.StringType; nullable = true },
+                                navArgument("fromAi") { type = NavType.BoolType; defaultValue = false }
                             )
                         ) { backStackEntry ->
                             val photoId = backStackEntry.arguments?.getLong("photoId") ?: 0L
                             val rawAlbumName = backStackEntry.arguments?.getString("albumName")
                             val albumName = if (rawAlbumName != null) Uri.decode(rawAlbumName) else null
+                            val fromAi = backStackEntry.arguments?.getBoolean("fromAi") ?: false
 
                             val viewerViewModel: ViewerViewModel = viewModel(
                                 factory = object : ViewModelProvider.Factory {
@@ -180,6 +182,7 @@ class MainActivity : ComponentActivity() {
 
                             ViewerScreen(
                                 viewModel = viewerViewModel,
+                                isFromAi = fromAi,
                                 onBackClick = { navController.popBackStack() }
                             )
                         }
