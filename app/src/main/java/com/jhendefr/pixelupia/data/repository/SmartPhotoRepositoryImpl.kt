@@ -21,6 +21,13 @@ class SmartPhotoRepositoryImpl(
         boundingBoxes: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            val sourceApp = photo.sourceApp ?: com.jhendefr.pixelupia.domain.classifier.ScreenshotSourceClassifier.extractSourceApp(photo.name)
+            val searchContent = if (!sourceApp.isNullOrBlank()) {
+                "$textContent $sourceApp"
+            } else {
+                textContent
+            }.trim()
+
             val entity = SmartPhotoEntity(
                 photoId = photo.id,
                 uri = photo.uri.toString(),
@@ -28,7 +35,9 @@ class SmartPhotoRepositoryImpl(
                 folderName = photo.folderName,
                 dateAdded = photo.dateTaken,
                 textContent = textContent,
-                boundingBoxes = boundingBoxes
+                boundingBoxes = boundingBoxes,
+                sourceApp = sourceApp,
+                searchContent = searchContent
             )
             dao.insertPhoto(entity)
             Result.success(Unit)
@@ -38,8 +47,9 @@ class SmartPhotoRepositoryImpl(
     }
 
     override fun searchPhotos(query: String): Flow<List<Photo>> {
-        val sanitizedQuery = query.trim()
-        val ftsQuery = if (sanitizedQuery.isEmpty()) "" else "*$sanitizedQuery*"
+        val sanitized = query.trim().replace(Regex("[^\\p{L}\\p{Nd}]+"), " ").trim()
+        val tokens = sanitized.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        val ftsQuery = if (tokens.isEmpty()) "" else tokens.joinToString(" ") { "$it*" }
         return dao.searchPhotosByText(ftsQuery).map { entities ->
             entities.map { entity ->
                 Photo(
@@ -49,7 +59,8 @@ class SmartPhotoRepositoryImpl(
                     dateTaken = entity.dateAdded,
                     size = 0L,
                     folderName = entity.folderName,
-                    mimeType = "image/*"
+                    mimeType = "image/*",
+                    sourceApp = entity.sourceApp
                 )
             }
         }
@@ -65,7 +76,8 @@ class SmartPhotoRepositoryImpl(
                     dateTaken = entity.dateAdded,
                     size = 0L,
                     folderName = entity.folderName,
-                    mimeType = "image/*"
+                    mimeType = "image/*",
+                    sourceApp = entity.sourceApp
                 )
             }
         }
@@ -77,5 +89,14 @@ class SmartPhotoRepositoryImpl(
 
     override suspend fun isPhotoIndexed(photoId: Long): Boolean = withContext(Dispatchers.IO) {
         dao.getPhotoById(photoId) != null
+    }
+
+    override suspend fun unindexPhoto(photoId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            dao.deletePhotoById(photoId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 }

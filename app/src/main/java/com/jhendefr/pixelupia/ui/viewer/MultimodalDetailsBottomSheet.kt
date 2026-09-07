@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -165,14 +166,19 @@ fun MultimodalDetailsBottomSheet(
                     }
                 }
 
-                // 2. Objetos y Etiquetas con Porcentaje de Precisión
+                // 2. Escenas y Etiquetas Visuales con Porcentaje de Precisión (Image Labeler)
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            text = "Objetos y Escenas Detectadas",
+                            text = "Escenas y Etiquetas Visuales",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Clasificación de contexto, ambiente y rasgos visuales",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         if (metadata?.labels.isNullOrEmpty()) {
                             Text(
@@ -183,6 +189,14 @@ fun MultimodalDetailsBottomSheet(
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 metadata?.labels?.forEach { label ->
+                                    val displayText = if (label.contains(" - ")) {
+                                        val term = label.substringBeforeLast(" - ")
+                                        val conf = label.substringAfterLast(" - ")
+                                        "${com.jhendefr.pixelupia.data.ml.LabelTranslator.translate(term)} - $conf"
+                                    } else {
+                                        com.jhendefr.pixelupia.data.ml.LabelTranslator.translate(label)
+                                    }
+
                                     Surface(
                                         shape = RoundedCornerShape(10.dp),
                                         color = MaterialTheme.colorScheme.secondaryContainer,
@@ -200,7 +214,7 @@ fun MultimodalDetailsBottomSheet(
                                             )
                                             Spacer(modifier = Modifier.width(10.dp))
                                             Text(
-                                                text = label,
+                                                text = displayText,
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.Medium,
                                                 color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -295,6 +309,24 @@ fun MultimodalDetailsBottomSheet(
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 metadata?.entities?.forEach { entity ->
+                                    val entityText = if (entity.contains(" (")) entity.substringBeforeLast(" (") else entity
+                                    val entityType = if (entity.contains(" (")) entity.substringAfterLast(" (").removeSuffix(")") else ""
+
+                                    val isUrl = entityType.equals("URL", ignoreCase = true) ||
+                                            entityText.startsWith("http://", ignoreCase = true) ||
+                                            entityText.startsWith("https://", ignoreCase = true) ||
+                                            entityText.startsWith("www.", ignoreCase = true)
+                                    val isPhone = entityType.equals("Telefono", ignoreCase = true)
+                                    val isEmail = entityType.equals("Email", ignoreCase = true)
+
+                                    val entityIcon = when {
+                                        isUrl -> Icons.Default.Language
+                                        isPhone -> Icons.Default.Phone
+                                        isEmail -> Icons.Default.Email
+                                        entityType.equals("Tarjeta", ignoreCase = true) -> Icons.Default.CreditCard
+                                        else -> Icons.Default.Link
+                                    }
+
                                     Surface(
                                         shape = RoundedCornerShape(10.dp),
                                         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -312,7 +344,7 @@ fun MultimodalDetailsBottomSheet(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Link,
+                                                    imageVector = entityIcon,
                                                     contentDescription = null,
                                                     tint = MaterialTheme.colorScheme.secondary,
                                                     modifier = Modifier.size(18.dp)
@@ -323,15 +355,77 @@ fun MultimodalDetailsBottomSheet(
                                                     style = MaterialTheme.typography.bodyMedium
                                                 )
                                             }
-                                            IconButton(
-                                                onClick = { copyText(entity, "Entidad copiada") },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ContentCopy,
-                                                    contentDescription = "Copiar entidad",
-                                                    modifier = Modifier.size(16.dp)
-                                                )
+
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                // Boton de App Intent Contextual
+                                                if (isUrl) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            val targetUrl = if (!entityText.startsWith("http://") && !entityText.startsWith("https://")) {
+                                                                "https://$entityText"
+                                                            } else {
+                                                                entityText
+                                                            }
+                                                            runCatching {
+                                                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(targetUrl))
+                                                                context.startActivity(intent)
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                                            contentDescription = "Abrir enlace",
+                                                            modifier = Modifier.size(16.dp),
+                                                            tint = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
+                                                } else if (isPhone) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            runCatching {
+                                                                val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$entityText"))
+                                                                context.startActivity(intent)
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Phone,
+                                                            contentDescription = "Llamar",
+                                                            modifier = Modifier.size(16.dp),
+                                                            tint = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
+                                                } else if (isEmail) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            runCatching {
+                                                                val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:$entityText"))
+                                                                context.startActivity(intent)
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Email,
+                                                            contentDescription = "Enviar correo",
+                                                            modifier = Modifier.size(16.dp),
+                                                            tint = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
+                                                }
+
+                                                IconButton(
+                                                    onClick = { copyText(entityText, "Copiado al portapapeles") },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ContentCopy,
+                                                        contentDescription = "Copiar entidad",
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }

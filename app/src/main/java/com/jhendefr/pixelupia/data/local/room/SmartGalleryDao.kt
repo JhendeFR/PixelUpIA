@@ -43,6 +43,7 @@ interface SmartGalleryDao {
             barcodes = :barcodes, 
             labels = :labels, 
             entities = :entities, 
+            searchContent = :searchContent,
             isEnriched = 1 
         WHERE photoId = :photoId
     """)
@@ -51,7 +52,8 @@ interface SmartGalleryDao {
         hasFaces: Boolean,
         barcodes: List<String>,
         labels: List<String>,
-        entities: List<String>
+        entities: List<String>,
+        searchContent: String
     ): Int
 
     @Query("SELECT COUNT(*) FROM smart_photos WHERE isEnriched = 1")
@@ -62,4 +64,10 @@ interface SmartGalleryDao {
 
     @Query("SELECT COUNT(*) FROM smart_photos")
     suspend fun getCount(): Int
+
+    @Query("SELECT * FROM smart_photos WHERE sourceApp = :sourceApp ORDER BY dateAdded DESC")
+    fun getPhotosBySourceApp(sourceApp: String): Flow<List<SmartPhotoEntity>>
+
+    @Query("SELECT DISTINCT sourceApp FROM smart_photos WHERE sourceApp IS NOT NULL AND sourceApp != ''")
+    fun getDistinctSourceApps(): Flow<List<String>>
 }

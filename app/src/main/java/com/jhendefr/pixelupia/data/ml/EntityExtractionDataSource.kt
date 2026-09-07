@@ -71,30 +71,48 @@ class EntityExtractionDataSource {
             }
         }
 
-        val params = EntityExtractionParams.Builder(text).build()
+        val allowedEntityTypes = setOf(
+            Entity.TYPE_URL,
+            Entity.TYPE_PHONE,
+            Entity.TYPE_EMAIL,
+            Entity.TYPE_IBAN,
+            Entity.TYPE_ADDRESS,
+            Entity.TYPE_PAYMENT_CARD,
+            Entity.TYPE_MONEY,
+            Entity.TYPE_TRACKING_NUMBER
+        )
+
+        val params = EntityExtractionParams.Builder(text)
+            .setEntityTypesFilter(allowedEntityTypes)
+            .build()
 
         suspendCancellableCoroutine { continuation ->
             entityExtractor.annotate(params)
                 .addOnSuccessListener { annotations ->
                     val result = annotations.flatMapIndexed { aIdx, annotation ->
-                        val annotatedText = annotation.annotatedText
-                        annotation.entities.mapIndexed { eIdx, entity ->
-                            val typeName = when (entity.type) {
-                                Entity.TYPE_URL -> "URL"
-                                Entity.TYPE_DATE_TIME -> "Fecha"
-                                Entity.TYPE_PHONE -> "Telefono"
-                                Entity.TYPE_EMAIL -> "Email"
-                                Entity.TYPE_IBAN -> "IBAN"
-                                Entity.TYPE_ADDRESS -> "Direccion"
-                                Entity.TYPE_PAYMENT_CARD -> "Tarjeta"
-                                else -> "Entidad"
+                        val annotatedText = annotation.annotatedText.trim()
+                        annotation.entities
+                            .filter { it.type != Entity.TYPE_DATE_TIME }
+                            .mapIndexedNotNull { eIdx, entity ->
+                                val typeName = when (entity.type) {
+                                    Entity.TYPE_URL -> "URL"
+                                    Entity.TYPE_PHONE -> "Telefono"
+                                    Entity.TYPE_EMAIL -> "Email"
+                                    Entity.TYPE_IBAN -> "IBAN"
+                                    Entity.TYPE_ADDRESS -> "Direccion"
+                                    Entity.TYPE_PAYMENT_CARD -> "Tarjeta"
+                                    Entity.TYPE_MONEY -> "Dinero"
+                                    Entity.TYPE_TRACKING_NUMBER -> "Seguimiento"
+                                    else -> null
+                                }
+                                if (typeName != null && annotatedText.length >= 3) {
+                                    ExtractedEntityItem(
+                                        id = "entity_${aIdx}_$eIdx",
+                                        text = annotatedText,
+                                        type = typeName
+                                    )
+                                } else null
                             }
-                            ExtractedEntityItem(
-                                id = "entity_${aIdx}_$eIdx",
-                                text = annotatedText,
-                                type = typeName
-                            )
-                        }
                     }
                     if (result.isEmpty()) {
                         continuation.resume(extractEntitiesRegexFallback(text))

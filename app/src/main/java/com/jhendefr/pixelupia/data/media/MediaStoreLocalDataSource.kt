@@ -45,6 +45,7 @@ class MediaStoreLocalDataSource (private val context: Context) {
                 val contentUri = ContentUris.withAppendedId(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id
                 )
+                val sourceApp = com.jhendefr.pixelupia.domain.classifier.ScreenshotSourceClassifier.extractSourceApp(name)
                 photos.add(
                     Photo(
                         id = id,
@@ -53,7 +54,8 @@ class MediaStoreLocalDataSource (private val context: Context) {
                         dateTaken = dateTaken,
                         size = size,
                         folderName = folderName,
-                        mimeType = mimeType
+                        mimeType = mimeType,
+                        sourceApp = sourceApp
                     )
                 )
             }
@@ -91,6 +93,8 @@ class MediaStoreLocalDataSource (private val context: Context) {
                 val mimeType = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)) ?: "image/png"
                 val contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
 
+                val sourceApp = com.jhendefr.pixelupia.domain.classifier.ScreenshotSourceClassifier.extractSourceApp(name)
+
                 Photo(
                     id = id,
                     uri = contentUri,
@@ -98,7 +102,8 @@ class MediaStoreLocalDataSource (private val context: Context) {
                     dateTaken = if (dateTaken > 0) dateTaken else System.currentTimeMillis(),
                     size = size,
                     folderName = folderName,
-                    mimeType = mimeType
+                    mimeType = mimeType,
+                    sourceApp = sourceApp
                 )
             } else {
                 null

@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
         val barcodeDataSource = BarcodeDataSource(applicationContext)
         val faceDetectionDataSource = FaceDetectionDataSource(applicationContext)
         val imageLabelingDataSource = ImageLabelingDataSource(applicationContext)
-        val objectDetectionDataSource = ObjectDetectionDataSource(applicationContext, imageLabelingDataSource)
+        val objectDetectionDataSource = ObjectDetectionDataSource(applicationContext, imageLabelingDataSource, faceDetectionDataSource)
         val entityExtractionDataSource = EntityExtractionDataSource()
 
         val getPhotosUseCase = GetPhotosUseCase(repository)
@@ -97,8 +97,13 @@ class MainActivity : ComponentActivity() {
         val getPhotoMultimodalMetadataUseCase = GetPhotoMultimodalMetadataUseCase(
             smartGalleryDao = snapVaultDb.smartGalleryDao()
         )
+        val getSmartCollectionsUseCase = com.jhendefr.pixelupia.domain.usecase.GetSmartCollectionsUseCase(
+            smartGalleryDao = snapVaultDb.smartGalleryDao()
+        )
+        val smartGalleryPreferencesDataSource = com.jhendefr.pixelupia.data.local.SmartGalleryPreferencesDataSource(applicationContext)
+        val unindexPhotoUseCase = UnindexPhotoUseCase(smartPhotoRepository)
 
-        // Programar enriquecimiento multimodal periódico con WorkManager
+        // Programar enriquecimiento multimodal periodico con WorkManager
         WorkManagerScheduler.schedulePeriodicEnrichment(applicationContext)
 
         val galleryViewModelFactory = object : ViewModelProvider.Factory {
@@ -115,7 +120,11 @@ class MainActivity : ComponentActivity() {
                     searchSmartPhotosUseCase = searchSmartPhotosUseCase,
                     getIndexedFoldersUseCase = getIndexedFoldersUseCase,
                     processFolderOcrUseCase = processFolderOcrUseCase,
-                    enrichFolderScreenshotsUseCase = enrichFolderScreenshotsUseCase
+                    enrichFolderScreenshotsUseCase = enrichFolderScreenshotsUseCase,
+                    getSmartCollectionsUseCase = getSmartCollectionsUseCase,
+                    preferencesDataSource = smartGalleryPreferencesDataSource,
+                    unindexPhotoUseCase = unindexPhotoUseCase,
+                    enrichScreenshotUseCase = enrichScreenshotUseCase
                 ) as T
             }
         }
@@ -209,6 +218,7 @@ class MainActivity : ComponentActivity() {
                                             toggleFavoriteUseCase = toggleFavoriteUseCase,
                                             runInteractiveOcrUseCase = runInteractiveOcrUseCase,
                                             enrichScreenshotUseCase = enrichScreenshotUseCase,
+                                            unindexPhotoUseCase = unindexPhotoUseCase,
                                             getPhotoMultimodalMetadataUseCase = getPhotoMultimodalMetadataUseCase,
                                             faceDetectionDataSource = faceDetectionDataSource,
                                             objectDetectionDataSource = objectDetectionDataSource,

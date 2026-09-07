@@ -9,4 +9,5 @@ interface SmartPhotoRepository {
     fun getAllSmartPhotos(): Flow<List<Photo>>
     fun getIndexedPhotoIds(): Flow<List<Long>>
     suspend fun isPhotoIndexed(photoId: Long): Boolean
+    suspend fun unindexPhoto(photoId: Long): Result<Unit>
 }

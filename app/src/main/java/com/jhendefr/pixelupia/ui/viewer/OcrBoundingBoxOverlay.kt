@@ -51,10 +51,8 @@ fun OcrBoundingBoxOverlay(
         val imgHeight = if (ocrResult.imageHeight > 0) ocrResult.imageHeight.toFloat() else containerHeight
 
         val scale = minOf(containerWidth / imgWidth, containerHeight / imgHeight)
-        val renderedWidth = imgWidth * scale
-        val renderedHeight = imgHeight * scale
-        val offsetX = (containerWidth - renderedWidth) / 2f
-        val offsetY = (containerHeight - renderedHeight) / 2f
+        val offsetX = (containerWidth - (imgWidth * scale)) / 2f
+        val offsetY = (containerHeight - (imgHeight * scale)) / 2f
 
         Canvas(
             modifier = Modifier
@@ -63,12 +61,12 @@ fun OcrBoundingBoxOverlay(
                     detectTapGestures { tapOffset ->
                         var clickedBlock: TextBlockItem? = null
                         for (block in ocrResult.blocks) {
-                            val left = offsetX + (block.box.left * scale)
-                            val top = offsetY + (block.box.top * scale)
-                            val right = offsetX + (block.box.right * scale)
-                            val bottom = offsetY + (block.box.bottom * scale)
+                            val mappedLeft = (block.box.left * scale) + offsetX
+                            val mappedTop = (block.box.top * scale) + offsetY
+                            val mappedRight = (block.box.right * scale) + offsetX
+                            val mappedBottom = (block.box.bottom * scale) + offsetY
 
-                            if (tapOffset.x in left..right && tapOffset.y in top..bottom) {
+                            if (tapOffset.x in mappedLeft..mappedRight && tapOffset.y in mappedTop..mappedBottom) {
                                 clickedBlock = block
                                 break
                             }
@@ -79,28 +77,51 @@ fun OcrBoundingBoxOverlay(
         ) {
             ocrResult.blocks.forEach { block ->
                 val isSelected = block.id == selectedBlockId
-                val left = offsetX + (block.box.left * scale)
-                val top = offsetY + (block.box.top * scale)
-                val right = offsetX + (block.box.right * scale)
-                val bottom = offsetY + (block.box.bottom * scale)
 
-                val boxWidth = right - left
-                val boxHeight = bottom - top
+                if (block.cornerPoints.size >= 4) {
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        val p0 = block.cornerPoints[0]
+                        moveTo((p0.x * scale) + offsetX, (p0.y * scale) + offsetY)
+                        for (i in 1 until block.cornerPoints.size) {
+                            val p = block.cornerPoints[i]
+                            lineTo((p.x * scale) + offsetX, (p.y * scale) + offsetY)
+                        }
+                        close()
+                    }
 
-                // Fondo semi-transparente del bloque
-                drawRect(
-                    color = if (isSelected) primaryColor.copy(alpha = 0.35f) else secondaryColor.copy(alpha = 0.18f),
-                    topLeft = Offset(left, top),
-                    size = Size(boxWidth, boxHeight)
-                )
+                    drawPath(
+                        path = path,
+                        color = if (isSelected) primaryColor.copy(alpha = 0.35f) else secondaryColor.copy(alpha = 0.18f)
+                    )
+                    drawPath(
+                        path = path,
+                        color = if (isSelected) primaryColor else secondaryColor.copy(alpha = 0.85f),
+                        style = Stroke(width = if (isSelected) 3.dp.toPx() else 1.5.dp.toPx())
+                    )
+                } else {
+                    val mappedLeft = (block.box.left * scale) + offsetX
+                    val mappedTop = (block.box.top * scale) + offsetY
+                    val mappedRight = (block.box.right * scale) + offsetX
+                    val mappedBottom = (block.box.bottom * scale) + offsetY
 
-                // Borde del bloque
-                drawRect(
-                    color = if (isSelected) primaryColor else secondaryColor.copy(alpha = 0.85f),
-                    topLeft = Offset(left, top),
-                    size = Size(boxWidth, boxHeight),
-                    style = Stroke(width = if (isSelected) 3.dp.toPx() else 1.5.dp.toPx())
-                )
+                    val boxWidth = mappedRight - mappedLeft
+                    val boxHeight = mappedBottom - mappedTop
+
+                    // Fondo semi-transparente del bloque
+                    drawRect(
+                        color = if (isSelected) primaryColor.copy(alpha = 0.35f) else secondaryColor.copy(alpha = 0.18f),
+                        topLeft = Offset(mappedLeft, mappedTop),
+                        size = Size(boxWidth, boxHeight)
+                    )
+
+                    // Borde del bloque
+                    drawRect(
+                        color = if (isSelected) primaryColor else secondaryColor.copy(alpha = 0.85f),
+                        topLeft = Offset(mappedLeft, mappedTop),
+                        size = Size(boxWidth, boxHeight),
+                        style = Stroke(width = if (isSelected) 3.dp.toPx() else 1.5.dp.toPx())
+                    )
+                }
             }
         }
     }
@@ -120,7 +141,7 @@ fun OcrDetailsBottomSheet(
 
     fun copyToClipboard(text: String, label: String = "Texto copiado") {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("OCR Text", text)
+        val clip = ClipData.newPlainText("Texto Detectado", text)
         clipboard.setPrimaryClip(clip)
         copiedMessage = label
     }
@@ -143,7 +164,7 @@ fun OcrDetailsBottomSheet(
             ) {
                 Column {
                     Text(
-                        text = "Texto Detectado (OCR)",
+                        text = "Texto Detectado",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -174,7 +195,7 @@ fun OcrDetailsBottomSheet(
                         onClick = onCloseOcr,
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar OCR")
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar texto")
                     }
                 }
             }

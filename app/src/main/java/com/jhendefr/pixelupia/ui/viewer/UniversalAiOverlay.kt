@@ -40,7 +40,8 @@ data class AiBoundingBoxItem(
     val label: String,
     val subLabel: String? = null,
     val box: Rect,
-    val type: AiOverlayType
+    val type: AiOverlayType,
+    val cornerPoints: List<android.graphics.Point> = emptyList()
 )
 
 @Composable
@@ -78,10 +79,8 @@ fun UniversalAiOverlay(
         val imgH = if (imageHeight > 0) imageHeight.toFloat() else containerHeight
 
         val scale = minOf(containerWidth / imgW, containerHeight / imgH)
-        val renderedWidth = imgW * scale
-        val renderedHeight = imgH * scale
-        val offsetX = (containerWidth - renderedWidth) / 2f
-        val offsetY = (containerHeight - renderedHeight) / 2f
+        val offsetX = (containerWidth - (imgW * scale)) / 2f
+        val offsetY = (containerHeight - (imgH * scale)) / 2f
 
         Canvas(
             modifier = Modifier
@@ -90,12 +89,12 @@ fun UniversalAiOverlay(
                     detectTapGestures { tapOffset ->
                         var clicked: AiBoundingBoxItem? = null
                         for (item in boxes) {
-                            val left = offsetX + (item.box.left * scale)
-                            val top = offsetY + (item.box.top * scale)
-                            val right = offsetX + (item.box.right * scale)
-                            val bottom = offsetY + (item.box.bottom * scale)
+                            val mappedLeft = (item.box.left * scale) + offsetX
+                            val mappedTop = (item.box.top * scale) + offsetY
+                            val mappedRight = (item.box.right * scale) + offsetX
+                            val mappedBottom = (item.box.bottom * scale) + offsetY
 
-                            if (tapOffset.x in left..right && tapOffset.y in top..bottom) {
+                            if (tapOffset.x in mappedLeft..mappedRight && tapOffset.y in mappedTop..mappedBottom) {
                                 clicked = item
                                 break
                             }
@@ -112,41 +111,63 @@ fun UniversalAiOverlay(
                     AiOverlayType.FACE -> Color(0xFFE91E63)         // Rosa / Magenta
                     AiOverlayType.OBJECT -> Color(0xFF00B0FF)       // Azul celeste
                     AiOverlayType.BARCODE -> Color(0xFFFF9100)      // Naranja
-                    AiOverlayType.ENTITY -> Color(0xFF7C4DFF)       // Púrpura
+                    AiOverlayType.ENTITY -> Color(0xFF7C4DFF)       // Purpura
                 }
 
-                val left = offsetX + (item.box.left * scale)
-                val top = offsetY + (item.box.top * scale)
-                val right = offsetX + (item.box.right * scale)
-                val bottom = offsetY + (item.box.bottom * scale)
+                if (item.cornerPoints.size >= 4) {
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        val p0 = item.cornerPoints[0]
+                        moveTo((p0.x * scale) + offsetX, (p0.y * scale) + offsetY)
+                        for (i in 1 until item.cornerPoints.size) {
+                            val p = item.cornerPoints[i]
+                            lineTo((p.x * scale) + offsetX, (p.y * scale) + offsetY)
+                        }
+                        close()
+                    }
 
-                val boxWidth = right - left
-                val boxHeight = bottom - top
+                    drawPath(
+                        path = path,
+                        color = if (isSelected) strokeColor.copy(alpha = 0.35f) else strokeColor.copy(alpha = 0.15f)
+                    )
+                    drawPath(
+                        path = path,
+                        color = strokeColor,
+                        style = Stroke(width = if (isSelected) 4f else 2.5f)
+                    )
+                } else {
+                    val mappedLeft = (item.box.left * scale) + offsetX
+                    val mappedTop = (item.box.top * scale) + offsetY
+                    val mappedRight = (item.box.right * scale) + offsetX
+                    val mappedBottom = (item.box.bottom * scale) + offsetY
 
-                // Fondo semi-transparente
-                drawRect(
-                    color = if (isSelected) strokeColor.copy(alpha = 0.35f) else strokeColor.copy(alpha = 0.15f),
-                    topLeft = Offset(left, top),
-                    size = Size(boxWidth, boxHeight)
-                )
+                    val boxWidth = mappedRight - mappedLeft
+                    val boxHeight = mappedBottom - mappedTop
 
-                // Borde del rectángulo
-                drawRect(
-                    color = strokeColor,
-                    topLeft = Offset(left, top),
-                    size = Size(boxWidth, boxHeight),
-                    style = Stroke(width = if (isSelected) 4f else 2.5f)
-                )
+                    // Fondo semi-transparente
+                    drawRect(
+                        color = if (isSelected) strokeColor.copy(alpha = 0.35f) else strokeColor.copy(alpha = 0.15f),
+                        topLeft = Offset(mappedLeft, mappedTop),
+                        size = Size(boxWidth, boxHeight)
+                    )
+
+                    // Borde del rectangulo
+                    drawRect(
+                        color = strokeColor,
+                        topLeft = Offset(mappedLeft, mappedTop),
+                        size = Size(boxWidth, boxHeight),
+                        style = Stroke(width = if (isSelected) 4f else 2.5f)
+                    )
+                }
             }
         }
 
-        // Elemento seleccionado: Floating chip sobre la caja o tarjeta de acción
+        // Elemento seleccionado: Floating chip sobre la caja o tarjeta de accion
         if (selectedItem != null) {
-            val left = offsetX + (selectedItem.box.left * scale)
-            val top = offsetY + (selectedItem.box.top * scale)
-            val bottom = offsetY + (selectedItem.box.bottom * scale)
+            val mappedLeft = (selectedItem.box.left * scale) + offsetX
+            val mappedTop = (selectedItem.box.top * scale) + offsetY
+            val mappedBottom = (selectedItem.box.bottom * scale) + offsetY
 
-            val tagY = if (top > 80f) top - 45f else bottom + 8f
+            val tagY = if (mappedTop > 80f) mappedTop - 45f else mappedBottom + 8f
 
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -154,10 +175,12 @@ fun UniversalAiOverlay(
                 tonalElevation = 6.dp,
                 shadowElevation = 8.dp,
                 modifier = Modifier
-                    .offset(
-                        x = (left.coerceIn(16f, containerWidth - 260f)).dp / LocalContext.current.resources.displayMetrics.density,
-                        y = (tagY.coerceIn(60f, containerHeight - 160f)).dp / LocalContext.current.resources.displayMetrics.density
-                    )
+                    .offset {
+                        androidx.compose.ui.unit.IntOffset(
+                            mappedLeft.coerceIn(16f, containerWidth - 280f).toInt(),
+                            tagY.coerceIn(60f, containerHeight - 160f).toInt()
+                        )
+                    }
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
