@@ -9,30 +9,32 @@ import kotlinx.coroutines.flow.map
 class GetIndexedFoldersUseCase(
     private val smartPhotoRepository: SmartPhotoRepository
 ) {
-    operator fun invoke(allPhotos: List<Photo>): Flow<List<IndexedFolderInfo>> {
+    operator fun invoke(
+        allPhotos: List<Photo>,
+        chosenFolderNames: Set<String> = setOf("Screenshots")
+    ): Flow<List<IndexedFolderInfo>> {
         return smartPhotoRepository.getIndexedPhotoIds().map { indexedIds ->
             val indexedSet = indexedIds.toSet()
+            val foldersToProcess = if (chosenFolderNames.isEmpty()) setOf("Screenshots") else chosenFolderNames
 
-            // Filtramos las fotos de la carpeta Screenshots (por ahora la única carpeta indexada por IA)
-            val screenshotPhotos = allPhotos.filter {
-                it.folderName.equals("Screenshots", ignoreCase = true) ||
-                        it.folderName.contains("screenshot", ignoreCase = true) ||
-                        it.name.contains("screenshot", ignoreCase = true)
+            foldersToProcess.map { folderName ->
+                val folderPhotos = allPhotos.filter {
+                    it.folderName.equals(folderName, ignoreCase = true) ||
+                            it.folderName.contains(folderName, ignoreCase = true)
+                }
+
+                val total = folderPhotos.size
+                val indexed = folderPhotos.count { indexedSet.contains(it.id) }
+                val coverUri = folderPhotos.firstOrNull()?.uri
+
+                IndexedFolderInfo(
+                    name = folderName,
+                    totalPhotos = total,
+                    indexedPhotos = indexed,
+                    isProcessing = total > 0 && indexed < total,
+                    coverUri = coverUri
+                )
             }
-
-            val totalScreenshots = screenshotPhotos.size
-            val indexedScreenshots = screenshotPhotos.count { indexedSet.contains(it.id) }
-            val coverUri = screenshotPhotos.firstOrNull()?.uri
-
-            val screenshotFolderInfo = IndexedFolderInfo(
-                name = "Screenshots",
-                totalPhotos = totalScreenshots,
-                indexedPhotos = indexedScreenshots,
-                isProcessing = totalScreenshots > 0 && indexedScreenshots < totalScreenshots,
-                coverUri = coverUri
-            )
-
-            listOf(screenshotFolderInfo)
         }
     }
 }

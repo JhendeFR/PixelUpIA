@@ -17,5 +17,7 @@ data class SmartPhotoEntity(
     val barcodes: List<String> = emptyList(),
     val labels: List<String> = emptyList(),
     val entities: List<String> = emptyList(),
-    val isEnriched: Boolean = false
+    val isEnriched: Boolean = false,
+    val sourceApp: String? = null,
+    val searchContent: String = ""
 )

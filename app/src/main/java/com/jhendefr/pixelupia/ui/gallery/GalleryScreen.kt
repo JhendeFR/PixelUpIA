@@ -69,7 +69,11 @@ fun GalleryScreen(
         viewModel.onEvent(GalleryEvent.SelectIndexedFolder(null))
     }
 
-    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedIndexedFolderName == null && uiState.selectedTab != GalleryTab.PHOTOS) {
+    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedIndexedFolderName == null && uiState.selectedSmartCollection != null) {
+        viewModel.onEvent(GalleryEvent.SelectSmartCollection(null))
+    }
+
+    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedIndexedFolderName == null && uiState.selectedSmartCollection == null && uiState.selectedTab != GalleryTab.PHOTOS) {
         viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.PHOTOS))
     }
 
@@ -348,14 +352,32 @@ fun GalleryScreen(
                                 allPhotos = uiState.photos,
                                 indexedFolders = uiState.indexedFolders,
                                 selectedIndexedFolder = uiState.selectedIndexedFolderName,
+                                appCollections = uiState.appCollections,
+                                visualCollections = uiState.visualCollections,
+                                selectedSmartCollection = uiState.selectedSmartCollection,
+                                hiddenCollections = uiState.hiddenCollections,
+                                showHiddenCollectionsDialog = uiState.showHiddenCollectionsDialog,
+                                showFolderManagerDialog = uiState.showFolderManagerDialog,
+                                showIndexedCount = uiState.showIndexedCount,
+                                allDeviceFolders = uiState.existingFolderNames,
+                                chosenIndexFolders = uiState.chosenIndexFolders,
                                 isBatchIndexing = uiState.isBatchIndexing,
                                 batchIndexingProgress = uiState.batchIndexingProgress,
+                                activeIndexingFolder = uiState.activeIndexingFolder,
                                 isFolderEnriching = uiState.isFolderEnriching,
                                 folderEnrichingProgress = uiState.folderEnrichingProgress,
+                                activeEnrichingFolder = uiState.activeEnrichingFolder,
                                 selectedIds = uiState.selectedPhotoIds,
                                 isSelectionMode = uiState.isSelectionMode,
                                 onQueryChange = { viewModel.onEvent(GalleryEvent.UpdateSmartSearchQuery(it)) },
                                 onSelectFolder = { viewModel.onEvent(GalleryEvent.SelectIndexedFolder(it)) },
+                                onSelectSmartCollection = { viewModel.onEvent(GalleryEvent.SelectSmartCollection(it)) },
+                                onHideCollection = { viewModel.onEvent(GalleryEvent.HideCollection(it)) },
+                                onUnhideCollection = { viewModel.onEvent(GalleryEvent.UnhideCollection(it)) },
+                                onToggleHiddenCollectionsDialog = { viewModel.onEvent(GalleryEvent.ToggleHiddenCollectionsDialog(it)) },
+                                onToggleFolderManagerDialog = { viewModel.onEvent(GalleryEvent.ToggleFolderManagerDialog(it)) },
+                                onToggleFolderIndexing = { viewModel.onEvent(GalleryEvent.ToggleFolderIndexing(it)) },
+                                onToggleShowIndexedCount = { viewModel.onEvent(GalleryEvent.ToggleShowIndexedCount) },
                                 onTriggerBatchIndex = { viewModel.onEvent(GalleryEvent.TriggerBatchIndexFolder(it)) },
                                 onTriggerFolderEnrichment = { viewModel.onEvent(GalleryEvent.TriggerFolderMultimodalEnrichment(it)) },
                                 onPhotoClick = { photo -> onPhotoClick(photo, true) },
@@ -429,6 +451,26 @@ fun GalleryScreen(
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
+
+                            // Boton para desindexar seleccion en modo IA
+                            if (uiState.selectedTab == GalleryTab.SMART_AI) {
+                                IconButton(
+                                    onClick = {
+                                        uiState.selectedPhotoIds.forEach { id ->
+                                            viewModel.onEvent(GalleryEvent.UnindexPhoto(id))
+                                        }
+                                        viewModel.onEvent(GalleryEvent.ClearSelection)
+                                    },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.LayersClear,
+                                        contentDescription = "Desindexar",
+                                        tint = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                            }
+
                             IconButton(
                                 onClick = { viewModel.onEvent(GalleryEvent.RequestDeleteSelected) },
                                 modifier = Modifier.minimumInteractiveComponentSize()

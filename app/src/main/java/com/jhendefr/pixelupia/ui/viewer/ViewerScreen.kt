@@ -510,7 +510,43 @@ fun ViewerScreen(
                                 )
                             }
 
-                            // 7. BOTÓN PARA SALIR DEL MODO IA
+                            // 7. BOTÓN PARA INDEXAR O DESINDEXAR IMAGEN INDIVIDUAL
+                            FilledTonalButton(
+                                onClick = {
+                                    if (uiState.isPhotoIndexed) {
+                                        viewModel.onEvent(ViewerEvent.UnindexCurrentPhoto(currentPhoto.id))
+                                    } else {
+                                        viewModel.onEvent(ViewerEvent.IndexCurrentPhoto(currentPhoto))
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = CircleShape,
+                                colors = if (uiState.isPhotoIndexed) {
+                                    ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                } else {
+                                    ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isPhotoIndexed) Icons.Default.LayersClear else Icons.Default.AddPhotoAlternate,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (uiState.isPhotoIndexed) "Desindexar" else "Indexar",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            // 8. BOTÓN PARA SALIR DEL MODO IA
                             FilledTonalIconButton(
                                 onClick = { viewModel.onEvent(ViewerEvent.CloseAiMode) },
                                 modifier = Modifier.size(34.dp)
@@ -630,6 +666,40 @@ fun ViewerScreen(
                                         },
                                         modifier = Modifier.minimumInteractiveComponentSize()
                                     )
+                                    HorizontalDivider()
+                                    if (uiState.isPhotoIndexed) {
+                                        DropdownMenuItem(
+                                            text = { Text("Desindexar de IA") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.LayersClear,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            },
+                                            onClick = {
+                                                showMoreMenu = false
+                                                viewModel.onEvent(ViewerEvent.UnindexCurrentPhoto(currentPhoto.id))
+                                            },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        )
+                                    } else {
+                                        DropdownMenuItem(
+                                            text = { Text("Indexar con IA") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.AutoAwesome,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            },
+                                            onClick = {
+                                                showMoreMenu = false
+                                                viewModel.onEvent(ViewerEvent.IndexCurrentPhoto(currentPhoto))
+                                            },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        )
+                                    }
                                 }
                             }
                         }

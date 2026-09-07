@@ -1,6 +1,7 @@
 package com.jhendefr.pixelupia.data.ml
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
@@ -22,19 +23,28 @@ class ImageLabelingDataSource(private val context: Context) {
 
     private val labeler = ImageLabeling.getClient(
         ImageLabelerOptions.Builder()
-            .setConfidenceThreshold(0.7f)
+            .setConfidenceThreshold(0.75f)
             .build()
     )
 
     suspend fun labelImage(uri: Uri): List<DetectedLabelItem> = withContext(Dispatchers.IO) {
         val image = InputImage.fromFilePath(context, uri)
+        processInputImage(image)
+    }
 
+    suspend fun labelBitmap(bitmap: Bitmap): List<DetectedLabelItem> = withContext(Dispatchers.IO) {
+        val image = InputImage.fromBitmap(bitmap, 0)
+        processInputImage(image)
+    }
+
+    private suspend fun processInputImage(image: InputImage): List<DetectedLabelItem> =
         suspendCancellableCoroutine { continuation ->
             labeler.process(image)
                 .addOnSuccessListener { labels ->
                     val result = labels.map { label ->
+                        val translatedText = LabelTranslator.translate(label.text)
                         DetectedLabelItem(
-                            text = label.text,
+                            text = translatedText,
                             confidence = label.confidence
                         )
                     }
@@ -44,5 +54,4 @@ class ImageLabelingDataSource(private val context: Context) {
                     continuation.resume(emptyList())
                 }
         }
-    }
 }

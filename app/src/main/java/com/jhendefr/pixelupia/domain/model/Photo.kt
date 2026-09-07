@@ -9,7 +9,8 @@ data class Photo(
     val dateTaken: Long,
     val size: Long,
     val folderName: String,
-    val mimeType: String
+    val mimeType: String,
+    val sourceApp: String? = null
 )
 /**
  * Representa el modelo de dominio para una foto dentro de la aplicación.

@@ -32,6 +32,7 @@ class EnrichScreenshotUseCase(
             if (existingEntity == null) {
                 val ocrResult = textRecognitionDataSource.processImage(photo.uri)
                 textContent = ocrResult.text
+                val sourceApp = photo.sourceApp ?: com.jhendefr.pixelupia.domain.classifier.ScreenshotSourceClassifier.extractSourceApp(photo.name)
                 val entity = SmartPhotoEntity(
                     photoId = photo.id,
                     uri = photo.uri.toString(),
@@ -39,7 +40,9 @@ class EnrichScreenshotUseCase(
                     folderName = photo.folderName,
                     dateAdded = photo.dateTaken,
                     textContent = ocrResult.text,
-                    boundingBoxes = ocrResult.boundingBoxesJson
+                    boundingBoxes = ocrResult.boundingBoxesJson,
+                    sourceApp = sourceApp,
+                    searchContent = "$textContent ${sourceApp ?: ""}".trim()
                 )
                 smartGalleryDao.insertPhoto(entity)
                 existingEntity = entity
@@ -48,7 +51,8 @@ class EnrichScreenshotUseCase(
                 textContent = ocrResult.text
                 val updatedEntity = existingEntity.copy(
                     textContent = ocrResult.text,
-                    boundingBoxes = ocrResult.boundingBoxesJson
+                    boundingBoxes = ocrResult.boundingBoxesJson,
+                    searchContent = "${ocrResult.text} ${existingEntity.sourceApp ?: ""}".trim()
                 )
                 smartGalleryDao.insertPhoto(updatedEntity)
                 existingEntity = updatedEntity
@@ -79,13 +83,34 @@ class EnrichScreenshotUseCase(
                 )
             }
 
-            // Actualizar Room con los metadatos generados
+            // Construir indice concatenado enriquecido para busqueda FTS5
+            val cleanLabels = multimodalResult.labels.map {
+                if (it.contains(" - ")) it.substringBeforeLast(" - ") else it
+            }
+            val faceTerms = if (multimodalResult.hasFaces) "Rostro Cara Persona" else ""
+            val sourceAppTerm = existingEntity?.sourceApp ?: photo.sourceApp ?: ""
+            val barcodeTerms = multimodalResult.barcodes.joinToString(" ")
+            val entityTerms = multimodalResult.entities.map {
+                if (it.contains(" (")) it.substringBeforeLast(" (") else it
+            }.joinToString(" ")
+
+            val concatenatedSearchContent = buildString {
+                append(textContent)
+                if (sourceAppTerm.isNotBlank()) append(" $sourceAppTerm")
+                if (faceTerms.isNotBlank()) append(" $faceTerms")
+                if (cleanLabels.isNotEmpty()) append(" " + cleanLabels.joinToString(" "))
+                if (barcodeTerms.isNotBlank()) append(" $barcodeTerms")
+                if (entityTerms.isNotBlank()) append(" $entityTerms")
+            }.trim()
+
+            // Actualizar Room con los metadatos generados y sincronizar FTS5
             smartGalleryDao.updateEnrichment(
                 photoId = photo.id,
                 hasFaces = multimodalResult.hasFaces,
                 barcodes = multimodalResult.barcodes,
                 labels = multimodalResult.labels,
-                entities = multimodalResult.entities
+                entities = multimodalResult.entities,
+                searchContent = concatenatedSearchContent
             )
 
             Result.success(multimodalResult)

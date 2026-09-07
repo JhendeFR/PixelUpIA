@@ -59,7 +59,10 @@ data class ViewerUiState(
     val ocrResult: DetailedOcrResult? = null,
     val selectedBlockId: String? = null,
     val showOcrOverlay: Boolean = false,
-    val showOcrDetailsSheet: Boolean = false
+    val showOcrDetailsSheet: Boolean = false,
+
+    // Estado de Indexacion Individual de la Foto
+    val isPhotoIndexed: Boolean = false
 )
 
 sealed interface ViewerEvent {
@@ -77,24 +80,28 @@ sealed interface ViewerEvent {
     object OnIntentSenderDismissed : ViewerEvent
     object ClearUserMessage : ViewerEvent
 
-    // Modo IA y Navegación
+    // Modo IA y Navegacion
     object ToggleAiMode : ViewerEvent
     object CloseAiMode : ViewerEvent
     object ToggleMultimodalDetailsSheet : ViewerEvent
     object DismissMultimodalDetailsSheet : ViewerEvent
     data class LoadPhotoMetadata(val photoId: Long) : ViewerEvent
 
-    // Ejecución Independiente de Modelos de IA
+    // Indexar y Desindexar Foto Individual
+    data class IndexCurrentPhoto(val photo: Photo) : ViewerEvent
+    data class UnindexCurrentPhoto(val photoId: Long) : ViewerEvent
+
+    // Ejecucion Independiente de Modelos de IA
     data class TriggerInteractiveOcr(val photoUri: Uri) : ViewerEvent
     data class TriggerFaceDetection(val photoUri: Uri) : ViewerEvent
     data class TriggerObjectDetection(val photoUri: Uri) : ViewerEvent
     data class TriggerBarcodeScanning(val photoUri: Uri) : ViewerEvent
     data class TriggerEntityExtraction(val photoUri: Uri) : ViewerEvent
 
-    // Análisis Multimodal Completo (Toda la Imagen)
+    // Analisis Multimodal Completo (Toda la Imagen)
     data class TriggerFullMultimodalEnrichment(val photo: Photo) : ViewerEvent
 
-    // Control de Bounding Boxes y Selección
+    // Control de Bounding Boxes y Seleccion
     data class SelectDetectionBox(val id: String?) : ViewerEvent
     object CloseDetectionOverlay : ViewerEvent
 
@@ -116,6 +123,7 @@ class ViewerViewModel(
     private val toggleFavoriteUseCase: ToggleFavoriteUseCase,
     private val runInteractiveOcrUseCase: RunInteractiveOcrUseCase,
     private val enrichScreenshotUseCase: EnrichScreenshotUseCase,
+    private val unindexPhotoUseCase: UnindexPhotoUseCase,
     private val getPhotoMultimodalMetadataUseCase: GetPhotoMultimodalMetadataUseCase,
     private val faceDetectionDataSource: FaceDetectionDataSource,
     private val objectDetectionDataSource: ObjectDetectionDataSource,
@@ -144,7 +152,12 @@ class ViewerViewModel(
     private fun loadMultimodalMetadata(photoId: Long) {
         viewModelScope.launch {
             val metadata = getPhotoMultimodalMetadataUseCase(photoId)
-            _uiState.update { it.copy(multimodalMetadata = metadata) }
+            _uiState.update {
+                it.copy(
+                    isPhotoIndexed = metadata != null,
+                    multimodalMetadata = metadata
+                )
+            }
         }
     }
 
@@ -170,13 +183,13 @@ class ViewerViewModel(
                 loadMultimodalMetadata(event.photoId)
             }
 
-            // 1. TEXTO (OCR) INDEPENDIENTE
+            // 1. TEXTO INDEPENDIENTE
             is ViewerEvent.TriggerInteractiveOcr -> {
                 _uiState.update {
                     it.copy(
                         activeAiMode = ActiveAiMode.OCR,
                         isAnalyzingModel = true,
-                        modelAnalysisTitle = "Analizando texto (OCR)...",
+                        modelAnalysisTitle = "Analizando texto...",
                         showOcrOverlay = true,
                         selectedBlockId = null,
                         selectedDetectionId = null
@@ -190,7 +203,8 @@ class ViewerViewModel(
                                 id = block.id,
                                 label = block.text,
                                 box = android.graphics.Rect(block.box.left, block.box.top, block.box.right, block.box.bottom),
-                                type = AiOverlayType.OCR_TEXT
+                                type = AiOverlayType.OCR_TEXT,
+                                cornerPoints = block.cornerPoints
                             )
                         }
                         _uiState.update {
@@ -211,7 +225,7 @@ class ViewerViewModel(
                                 isOcrScanning = false,
                                 showOcrOverlay = false,
                                 activeAiMode = ActiveAiMode.NONE,
-                                userMessage = "Error en OCR: ${err.message}"
+                                userMessage = "Error en deteccion de texto: ${err.message}"
                             )
                         }
                     }
@@ -382,6 +396,7 @@ class ViewerViewModel(
                         _uiState.update {
                             it.copy(
                                 isEnriching = false,
+                                isPhotoIndexed = true,
                                 multimodalMetadata = metadata,
                                 showMultimodalDetailsSheet = true,
                                 userMessage = "Analisis multimodal completado con exito"
@@ -393,6 +408,50 @@ class ViewerViewModel(
                                 isEnriching = false,
                                 userMessage = "Error en analisis multimodal: ${err.message}"
                             )
+                        }
+                    }
+                }
+            }
+
+            // Indexar y Desindexar Individualmente
+            is ViewerEvent.IndexCurrentPhoto -> {
+                _uiState.update { it.copy(isEnriching = true) }
+                viewModelScope.launch {
+                    val result = enrichScreenshotUseCase(event.photo)
+                    result.onSuccess { metadata ->
+                        _uiState.update {
+                            it.copy(
+                                isEnriching = false,
+                                isPhotoIndexed = true,
+                                multimodalMetadata = metadata,
+                                userMessage = "Foto indexada con IA con exito"
+                            )
+                        }
+                    }.onFailure { err ->
+                        _uiState.update {
+                            it.copy(
+                                isEnriching = false,
+                                userMessage = "Error al indexar foto: ${err.message}"
+                            )
+                        }
+                    }
+                }
+            }
+
+            is ViewerEvent.UnindexCurrentPhoto -> {
+                viewModelScope.launch {
+                    val result = unindexPhotoUseCase(event.photoId)
+                    result.onSuccess {
+                        _uiState.update {
+                            it.copy(
+                                isPhotoIndexed = false,
+                                multimodalMetadata = null,
+                                userMessage = "Foto desindexada de IA con exito"
+                            )
+                        }
+                    }.onFailure { err ->
+                        _uiState.update {
+                            it.copy(userMessage = "Error al desindexar foto: ${err.message}")
                         }
                     }
                 }

@@ -23,7 +23,8 @@ data class TextBlockItem(
     val id: String,
     val text: String,
     val box: BoundingBoxRect,
-    val lines: List<String> = emptyList()
+    val lines: List<String> = emptyList(),
+    val cornerPoints: List<android.graphics.Point> = emptyList()
 )
 
 data class DetailedOcrResult(
@@ -75,22 +76,9 @@ class TextRecognitionDataSource(private val context: Context) {
     }
 
     suspend fun recognizeTextDetailed(uri: Uri): DetailedOcrResult = withContext(Dispatchers.IO) {
-        // Obtener dimensiones de la imagen original
-        var width = 0
-        var height = 0
-        try {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeStream(stream, null, options)
-                width = options.outWidth
-                height = options.outHeight
-            }
-        } catch (e: Exception) {
-            width = 1080
-            height = 1920
-        }
-
         val image = InputImage.fromFilePath(context, uri)
+        val imgWidth = if (image.width > 0) image.width else 1080
+        val imgHeight = if (image.height > 0) image.height else 1920
 
         suspendCancellableCoroutine { continuation ->
             recognizer.process(image)
@@ -102,6 +90,7 @@ class TextRecognitionDataSource(private val context: Context) {
                         val box = block.boundingBox
                         if (box != null && block.text.isNotBlank()) {
                             val lineTexts = block.lines.map { it.text.trim() }.filter { it.isNotEmpty() }
+                            val corners = block.cornerPoints?.toList() ?: emptyList()
                             blocks.add(
                                 TextBlockItem(
                                     id = "block_$blockIndex",
@@ -112,7 +101,8 @@ class TextRecognitionDataSource(private val context: Context) {
                                         right = box.right,
                                         bottom = box.bottom
                                     ),
-                                    lines = lineTexts
+                                    lines = lineTexts,
+                                    cornerPoints = corners
                                 )
                             )
                         }
@@ -122,8 +112,8 @@ class TextRecognitionDataSource(private val context: Context) {
                         DetailedOcrResult(
                             fullText = fullText,
                             blocks = blocks,
-                            imageWidth = if (width > 0) width else image.width,
-                            imageHeight = if (height > 0) height else image.height
+                            imageWidth = imgWidth,
+                            imageHeight = imgHeight
                         )
                     )
                 }
