@@ -7,8 +7,13 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
 @Database(
-    entities = [SmartPhotoEntity::class, SmartPhotoFtsEntity::class],
-    version = 4,
+    entities = [
+        SmartPhotoEntity::class,
+        SmartPhotoFtsEntity::class,
+        FaceClusterEntity::class,
+        PhotoClusterCrossRefEntity::class
+    ],
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

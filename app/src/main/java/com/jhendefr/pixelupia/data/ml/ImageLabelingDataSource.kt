@@ -23,7 +23,7 @@ class ImageLabelingDataSource(private val context: Context) {
 
     private val labeler = ImageLabeling.getClient(
         ImageLabelerOptions.Builder()
-            .setConfidenceThreshold(0.75f)
+            .setConfidenceThreshold(0.50f)
             .build()
     )
 

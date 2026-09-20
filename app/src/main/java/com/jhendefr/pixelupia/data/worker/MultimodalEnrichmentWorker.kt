@@ -33,6 +33,18 @@ class MultimodalEnrichmentWorker(
         val imageLabelingDataSource = ImageLabelingDataSource(applicationContext)
         val entityExtractionDataSource = EntityExtractionDataSource()
         val textRecognitionDataSource = TextRecognitionDataSource(applicationContext)
+        val objectDetectionDataSource = com.jhendefr.pixelupia.data.ml.ObjectDetectionDataSource(
+            context = applicationContext,
+            imageLabelingDataSource = imageLabelingDataSource,
+            faceDetectionDataSource = faceDetectionDataSource
+        )
+        val faceEmbeddingDataSource = com.jhendefr.pixelupia.data.ml.FaceEmbeddingDataSource(applicationContext)
+        val petEmbeddingDataSource = com.jhendefr.pixelupia.data.ml.PetEmbeddingDataSource(applicationContext)
+        val faceClusteringService = com.jhendefr.pixelupia.data.ml.FaceClusteringService(
+            faceEmbeddingDataSource = faceEmbeddingDataSource,
+            petEmbeddingDataSource = petEmbeddingDataSource,
+            smartGalleryDao = dao
+        )
 
         val enrichUseCase = EnrichScreenshotUseCase(
             barcodeDataSource = barcodeDataSource,
@@ -40,7 +52,10 @@ class MultimodalEnrichmentWorker(
             imageLabelingDataSource = imageLabelingDataSource,
             entityExtractionDataSource = entityExtractionDataSource,
             smartGalleryDao = dao,
-            textRecognitionDataSource = textRecognitionDataSource
+            textRecognitionDataSource = textRecognitionDataSource,
+            context = applicationContext,
+            faceClusteringService = faceClusteringService,
+            objectDetectionDataSource = objectDetectionDataSource
         )
 
         for (photoEntity in unenrichedScreenshots) {

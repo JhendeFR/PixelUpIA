@@ -99,6 +99,10 @@ dependencies {
     implementation(libs.mlkit.entity.extraction)
     implementation(libs.mlkit.objects)
 
+    // TensorFlow Lite
+    implementation(libs.tensorflow.lite)
+    implementation(libs.tensorflow.lite.support)
+
     // AndroidX WorkManager
     implementation(libs.androidx.work.runtime.ktx)
 

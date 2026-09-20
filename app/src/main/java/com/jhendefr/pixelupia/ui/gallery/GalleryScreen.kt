@@ -52,7 +52,7 @@ import java.util.ArrayList
 @Composable
 fun GalleryScreen(
     viewModel: GalleryViewModel,
-    onPhotoClick: (Photo, Boolean) -> Unit = { _, _ -> },
+    onPhotoClick: (Photo, Boolean, String?) -> Unit = { _, _, _ -> },
     onAlbumClick: (Album) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -65,15 +65,19 @@ fun GalleryScreen(
         viewModel.onEvent(GalleryEvent.ClearSelection)
     }
 
-    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedIndexedFolderName != null) {
+    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedFaceCluster != null) {
+        viewModel.onEvent(GalleryEvent.SelectFaceCluster(null))
+    }
+
+    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedFaceCluster == null && uiState.selectedIndexedFolderName != null) {
         viewModel.onEvent(GalleryEvent.SelectIndexedFolder(null))
     }
 
-    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedIndexedFolderName == null && uiState.selectedSmartCollection != null) {
+    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedFaceCluster == null && uiState.selectedIndexedFolderName == null && uiState.selectedSmartCollection != null) {
         viewModel.onEvent(GalleryEvent.SelectSmartCollection(null))
     }
 
-    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedIndexedFolderName == null && uiState.selectedSmartCollection == null && uiState.selectedTab != GalleryTab.PHOTOS) {
+    BackHandler(enabled = !uiState.isSelectionMode && uiState.selectedFaceCluster == null && uiState.selectedIndexedFolderName == null && uiState.selectedSmartCollection == null && uiState.selectedTab != GalleryTab.PHOTOS) {
         viewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.PHOTOS))
     }
 
@@ -335,7 +339,7 @@ fun GalleryScreen(
                                 photos = uiState.photos,
                                 selectedIds = uiState.selectedPhotoIds,
                                 isSelectionMode = uiState.isSelectionMode,
-                                onPhotoClick = { photo -> onPhotoClick(photo, false) },
+                                onPhotoClick = { photo -> onPhotoClick(photo, false, null) },
                                 onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
                             )
                         }
@@ -369,6 +373,27 @@ fun GalleryScreen(
                                 activeEnrichingFolder = uiState.activeEnrichingFolder,
                                 selectedIds = uiState.selectedPhotoIds,
                                 isSelectionMode = uiState.isSelectionMode,
+                                faceClusters = uiState.faceClusters,
+                                selectedFaceCluster = uiState.selectedFaceCluster,
+                                selectedFaceClusterPhotos = uiState.selectedFaceClusterPhotos,
+                                showAddPhotosToClusterDialog = uiState.showAddPhotosToClusterDialog,
+                                showMergeClusterDialog = uiState.showMergeClusterDialog,
+                                showChooseCoverDialog = uiState.showChooseCoverDialog,
+                                onSelectFaceCluster = { viewModel.onEvent(GalleryEvent.SelectFaceCluster(it)) },
+                                onRenameFaceCluster = { id, name -> viewModel.onEvent(GalleryEvent.RenameFaceCluster(id, name)) },
+                                onToggleAddPhotosToClusterDialog = { viewModel.onEvent(GalleryEvent.ToggleAddPhotosToClusterDialog(it)) },
+                                onToggleMergeClusterDialog = { viewModel.onEvent(GalleryEvent.ToggleMergeClusterDialog(it)) },
+                                onToggleChooseCoverDialog = { viewModel.onEvent(GalleryEvent.ToggleChooseCoverDialog(it)) },
+                                onSetClusterCover = { clusterId, photo -> viewModel.onEvent(GalleryEvent.SetClusterCover(clusterId, photo)) },
+                                onMergeFaceClusters = { targetId, sourceId -> viewModel.onEvent(GalleryEvent.MergeFaceClusters(targetId, sourceId)) },
+                                onHideFaceCluster = { viewModel.onEvent(GalleryEvent.HideFaceCluster(it)) },
+                                onAddPhotoToFaceCluster = { clusterId, photo -> viewModel.onEvent(GalleryEvent.AddPhotoToFaceCluster(clusterId, photo)) },
+                                onRemovePhotoFromFaceCluster = { clusterId, photoId -> viewModel.onEvent(GalleryEvent.RemovePhotoFromFaceCluster(clusterId, photoId)) },
+                                smartCollages = uiState.smartCollages,
+                                selectedFilterType = uiState.selectedFilterType,
+                                onSelectFilterType = { viewModel.onEvent(GalleryEvent.SelectFilterType(it)) },
+                                onRemoveCollagePhoto = { collage, photo -> viewModel.onEvent(GalleryEvent.RemoveCollagePhoto(collage, photo)) },
+                                onAddCollagePhoto = { viewModel.onEvent(GalleryEvent.AddCollagePhoto(it)) },
                                 onQueryChange = { viewModel.onEvent(GalleryEvent.UpdateSmartSearchQuery(it)) },
                                 onSelectFolder = { viewModel.onEvent(GalleryEvent.SelectIndexedFolder(it)) },
                                 onSelectSmartCollection = { viewModel.onEvent(GalleryEvent.SelectSmartCollection(it)) },
@@ -380,7 +405,7 @@ fun GalleryScreen(
                                 onToggleShowIndexedCount = { viewModel.onEvent(GalleryEvent.ToggleShowIndexedCount) },
                                 onTriggerBatchIndex = { viewModel.onEvent(GalleryEvent.TriggerBatchIndexFolder(it)) },
                                 onTriggerFolderEnrichment = { viewModel.onEvent(GalleryEvent.TriggerFolderMultimodalEnrichment(it)) },
-                                onPhotoClick = { photo -> onPhotoClick(photo, true) },
+                                onPhotoClick = { photo, collectionId -> onPhotoClick(photo, true, collectionId) },
                                 onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
                             )
                         }
@@ -419,67 +444,131 @@ fun GalleryScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(
-                                onClick = { viewModel.onEvent(GalleryEvent.RequestMoveSelected) },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.DriveFileMove,
-                                    contentDescription = "Mover",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            IconButton(
-                                onClick = { viewModel.onEvent(GalleryEvent.RequestCopySelected) },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(
-                                    Icons.Default.FileCopy,
-                                    contentDescription = "Copiar",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    sharePhotos(context, uiState.selectedPhotos)
-                                },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(
-                                    Icons.Default.Share,
-                                    contentDescription = "Compartir",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-
-                            // Boton para desindexar seleccion en modo IA
-                            if (uiState.selectedTab == GalleryTab.SMART_AI) {
+                            if (uiState.selectedTab == GalleryTab.SMART_AI && uiState.selectedFaceCluster != null) {
+                                val currentCluster = uiState.selectedFaceCluster
                                 IconButton(
                                     onClick = {
-                                        uiState.selectedPhotoIds.forEach { id ->
-                                            viewModel.onEvent(GalleryEvent.UnindexPhoto(id))
+                                        val clusterId = currentCluster?.id ?: return@IconButton
+                                        uiState.selectedPhotoIds.forEach { photoId ->
+                                            viewModel.onEvent(GalleryEvent.RemovePhotoFromFaceCluster(clusterId, photoId))
                                         }
                                         viewModel.onEvent(GalleryEvent.ClearSelection)
                                     },
                                     modifier = Modifier.minimumInteractiveComponentSize()
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.LayersClear,
-                                        contentDescription = "Desindexar",
-                                        tint = MaterialTheme.colorScheme.secondary
+                                        Icons.Default.PersonRemove,
+                                        contentDescription = "Quitar del grupo",
+                                        tint = MaterialTheme.colorScheme.error
                                     )
                                 }
-                            }
 
-                            IconButton(
-                                onClick = { viewModel.onEvent(GalleryEvent.RequestDeleteSelected) },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Eliminar",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
+                                if (uiState.selectedPhotoIds.size == 1) {
+                                    IconButton(
+                                        onClick = {
+                                            val clusterId = currentCluster?.id ?: return@IconButton
+                                            val photo = uiState.selectedPhotos.firstOrNull()
+                                            if (photo != null) {
+                                                viewModel.onEvent(GalleryEvent.SetClusterCover(clusterId, photo))
+                                            }
+                                            viewModel.onEvent(GalleryEvent.ClearSelection)
+                                        },
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Portrait,
+                                            contentDescription = "Elegir como portada",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        sharePhotos(context, uiState.selectedPhotos)
+                                    },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        Icons.Default.Share,
+                                        contentDescription = "Compartir",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { viewModel.onEvent(GalleryEvent.RequestDeleteSelected) },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Eliminar",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            } else {
+                                IconButton(
+                                    onClick = { viewModel.onEvent(GalleryEvent.RequestMoveSelected) },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.DriveFileMove,
+                                        contentDescription = "Mover",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { viewModel.onEvent(GalleryEvent.RequestCopySelected) },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        Icons.Default.FileCopy,
+                                        contentDescription = "Copiar",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        sharePhotos(context, uiState.selectedPhotos)
+                                    },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        Icons.Default.Share,
+                                        contentDescription = "Compartir",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                // Boton para desindexar seleccion en modo IA
+                                if (uiState.selectedTab == GalleryTab.SMART_AI) {
+                                    IconButton(
+                                        onClick = {
+                                            uiState.selectedPhotoIds.forEach { id ->
+                                                viewModel.onEvent(GalleryEvent.UnindexPhoto(id))
+                                            }
+                                            viewModel.onEvent(GalleryEvent.ClearSelection)
+                                        },
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.LayersClear,
+                                            contentDescription = "Desindexar",
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { viewModel.onEvent(GalleryEvent.RequestDeleteSelected) },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Eliminar",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                         }
                     }

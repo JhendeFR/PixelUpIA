@@ -12,18 +12,23 @@ class EnrichFolderScreenshotsUseCase(
 ) {
     suspend operator fun invoke(
         photos: List<Photo>,
+        forceReEnrich: Boolean = true,
         onProgress: ((current: Int, total: Int) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
-        val unenriched = photos.filter { photo ->
-            val entity = smartGalleryDao.getPhotoById(photo.id)
-            entity == null || !entity.isEnriched
+        val targets = if (forceReEnrich) {
+            photos
+        } else {
+            photos.filter { photo ->
+                val entity = smartGalleryDao.getPhotoById(photo.id)
+                entity == null || !entity.isEnriched
+            }
         }
 
-        val total = unenriched.size
-        unenriched.forEachIndexed { index, photo ->
+        val total = targets.size
+        targets.forEachIndexed { index, photo ->
             enrichScreenshotUseCase(photo)
             onProgress?.invoke(index + 1, total)
-            delay(100)
+            delay(50)
         }
     }
 }

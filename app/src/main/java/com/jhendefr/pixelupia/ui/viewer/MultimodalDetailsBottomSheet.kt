@@ -28,10 +28,14 @@ fun MultimodalDetailsBottomSheet(
     metadata: MultimodalMetadata?,
     isEnriching: Boolean,
     onTriggerEnrichment: () -> Unit,
+    onAddTag: (String) -> Unit = {},
+    onRemoveTag: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     var copiedNotice by remember { mutableStateOf<String?>(null) }
+    var newTagInput by remember { mutableStateOf("") }
+    var isAddingTag by remember { mutableStateOf(false) }
 
     fun copyText(text: String, label: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -187,45 +191,115 @@ fun MultimodalDetailsBottomSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                metadata?.labels?.forEach { label ->
-                                    val displayText = if (label.contains(" - ")) {
-                                        val term = label.substringBeforeLast(" - ")
-                                        val conf = label.substringAfterLast(" - ")
-                                        "${com.jhendefr.pixelupia.data.ml.LabelTranslator.translate(term)} - $conf"
-                                    } else {
-                                        com.jhendefr.pixelupia.data.ml.LabelTranslator.translate(label)
-                                    }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            metadata?.labels?.forEach { label ->
+                                val displayText = if (label.contains(" - ")) {
+                                    val term = label.substringBeforeLast(" - ")
+                                    val conf = label.substringAfterLast(" - ")
+                                    "${com.jhendefr.pixelupia.data.ml.LabelTranslator.translate(term)} - $conf"
+                                } else {
+                                    com.jhendefr.pixelupia.data.ml.LabelTranslator.translate(label)
+                                }
 
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = MaterialTheme.colorScheme.secondaryContainer,
-                                        modifier = Modifier.fillMaxWidth()
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                        Icon(
+                                            imageVector = Icons.Default.Category,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            text = displayText,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(
+                                            onClick = { onRemoveTag(label) },
+                                            modifier = Modifier.size(28.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Category,
-                                                contentDescription = null,
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Eliminar etiqueta",
                                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(10.dp))
-                                            Text(
-                                                text = displayText,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
                                     }
                                 }
                             }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            if (isAddingTag) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = newTagInput,
+                                        onValueChange = { newTagInput = it },
+                                        placeholder = { Text("Nueva etiqueta (ej. Perro, Ropa)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            if (newTagInput.isNotBlank()) {
+                                                onAddTag(newTagInput.trim())
+                                                newTagInput = ""
+                                                isAddingTag = false
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Guardar etiqueta",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            isAddingTag = false
+                                            newTagInput = ""
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Cancelar"
+                                        )
+                                    }
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { isAddingTag = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Agregar etiqueta / categoria manual")
+                                }
+                            }
                         }
                     }
                 }
+            }
 
                 // 3. Códigos QR y de Barras
                 item {

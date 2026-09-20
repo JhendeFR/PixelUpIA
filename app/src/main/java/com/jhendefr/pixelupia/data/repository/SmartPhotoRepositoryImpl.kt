@@ -49,7 +49,21 @@ class SmartPhotoRepositoryImpl(
     override fun searchPhotos(query: String): Flow<List<Photo>> {
         val sanitized = query.trim().replace(Regex("[^\\p{L}\\p{Nd}]+"), " ").trim()
         val tokens = sanitized.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-        val ftsQuery = if (tokens.isEmpty()) "" else tokens.joinToString(" ") { "$it*" }
+        if (tokens.isEmpty()) {
+            return dao.searchPhotosByText("").map { emptyList() }
+        }
+
+        val tokenClauses = tokens.map { token ->
+            val synonyms = com.jhendefr.pixelupia.data.ml.SynonymRegistry.getSynonyms(token).take(8)
+            val alternatives = (listOf(token) + synonyms).distinct()
+            if (alternatives.size == 1) {
+                "${alternatives.first()}*"
+            } else {
+                alternatives.joinToString(separator = " OR ", prefix = "(", postfix = ")") { "$it*" }
+            }
+        }
+        val ftsQuery = tokenClauses.joinToString(" ")
+
         return dao.searchPhotosByText(ftsQuery).map { entities ->
             entities.map { entity ->
                 Photo(

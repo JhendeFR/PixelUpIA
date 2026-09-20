@@ -82,13 +82,31 @@ class MainActivity : ComponentActivity() {
         val processFolderOcrUseCase = ProcessFolderOcrUseCase(indexScreenshotUseCase, smartPhotoRepository)
         val runInteractiveOcrUseCase = RunInteractiveOcrUseCase(textRecognitionDataSource)
 
+        val faceEmbeddingDataSource = com.jhendefr.pixelupia.data.ml.FaceEmbeddingDataSource(applicationContext)
+        val petEmbeddingDataSource = com.jhendefr.pixelupia.data.ml.PetEmbeddingDataSource(applicationContext)
+        val faceClusteringService = com.jhendefr.pixelupia.data.ml.FaceClusteringService(
+            faceEmbeddingDataSource = faceEmbeddingDataSource,
+            petEmbeddingDataSource = petEmbeddingDataSource,
+            smartGalleryDao = snapVaultDb.smartGalleryDao()
+        )
+        val getFaceClustersUseCase = com.jhendefr.pixelupia.domain.usecase.GetFaceClustersUseCase(snapVaultDb.smartGalleryDao())
+        val manageFaceClusterUseCase = com.jhendefr.pixelupia.domain.usecase.ManageFaceClusterUseCase(
+            faceClusteringService = faceClusteringService,
+            smartGalleryDao = snapVaultDb.smartGalleryDao()
+        )
+        val getPhotosForClusterUseCase = com.jhendefr.pixelupia.domain.usecase.GetPhotosForClusterUseCase(snapVaultDb.smartGalleryDao())
+        val managePhotoTagsUseCase = com.jhendefr.pixelupia.domain.usecase.ManagePhotoTagsUseCase(snapVaultDb.smartGalleryDao())
+
         val enrichScreenshotUseCase = EnrichScreenshotUseCase(
             barcodeDataSource = barcodeDataSource,
             faceDetectionDataSource = faceDetectionDataSource,
             imageLabelingDataSource = imageLabelingDataSource,
             entityExtractionDataSource = entityExtractionDataSource,
             smartGalleryDao = snapVaultDb.smartGalleryDao(),
-            textRecognitionDataSource = textRecognitionDataSource
+            textRecognitionDataSource = textRecognitionDataSource,
+            context = applicationContext,
+            faceClusteringService = faceClusteringService,
+            objectDetectionDataSource = objectDetectionDataSource
         )
         val enrichFolderScreenshotsUseCase = EnrichFolderScreenshotsUseCase(
             enrichScreenshotUseCase = enrichScreenshotUseCase,
@@ -124,7 +142,11 @@ class MainActivity : ComponentActivity() {
                     getSmartCollectionsUseCase = getSmartCollectionsUseCase,
                     preferencesDataSource = smartGalleryPreferencesDataSource,
                     unindexPhotoUseCase = unindexPhotoUseCase,
-                    enrichScreenshotUseCase = enrichScreenshotUseCase
+                    enrichScreenshotUseCase = enrichScreenshotUseCase,
+                    getFaceClustersUseCase = getFaceClustersUseCase,
+                    manageFaceClusterUseCase = manageFaceClusterUseCase,
+                    getPhotosForClusterUseCase = getPhotosForClusterUseCase,
+                    context = applicationContext
                 ) as T
             }
         }
@@ -147,8 +169,14 @@ class MainActivity : ComponentActivity() {
                         composable("gallery") {
                             GalleryScreen(
                                 viewModel = galleryViewModel,
-                                onPhotoClick = { selectedPhoto, fromAi ->
-                                    navController.navigate("viewer/${selectedPhoto.id}?fromAi=$fromAi")
+                                onPhotoClick = { selectedPhoto, fromAi, collectionId ->
+                                    val route = buildString {
+                                        append("viewer/${selectedPhoto.id}?fromAi=$fromAi")
+                                        if (!collectionId.isNullOrEmpty()) {
+                                            append("&collectionId=${Uri.encode(collectionId)}")
+                                        }
+                                    }
+                                    navController.navigate(route)
                                 },
                                 onAlbumClick = { album ->
                                     navController.navigate("album_detail/${Uri.encode(album.name)}")
@@ -190,16 +218,19 @@ class MainActivity : ComponentActivity() {
 
                         // 3. Visor de Fotos con Funciones IA
                         composable(
-                            route = "viewer/{photoId}?albumName={albumName}&fromAi={fromAi}",
+                            route = "viewer/{photoId}?albumName={albumName}&fromAi={fromAi}&collectionId={collectionId}",
                             arguments = listOf(
                                 navArgument("photoId") { type = NavType.LongType },
                                 navArgument("albumName") { type = NavType.StringType; nullable = true },
-                                navArgument("fromAi") { type = NavType.BoolType; defaultValue = false }
+                                navArgument("fromAi") { type = NavType.BoolType; defaultValue = false },
+                                navArgument("collectionId") { type = NavType.StringType; nullable = true }
                             )
                         ) { backStackEntry ->
                             val photoId = backStackEntry.arguments?.getLong("photoId") ?: 0L
                             val rawAlbumName = backStackEntry.arguments?.getString("albumName")
                             val albumName = if (rawAlbumName != null) Uri.decode(rawAlbumName) else null
+                            val rawCollectionId = backStackEntry.arguments?.getString("collectionId")
+                            val collectionId = if (rawCollectionId != null) Uri.decode(rawCollectionId) else null
                             val fromAi = backStackEntry.arguments?.getBoolean("fromAi") ?: false
 
                             val viewerViewModel: ViewerViewModel = viewModel(
@@ -209,6 +240,7 @@ class MainActivity : ComponentActivity() {
                                         return ViewerViewModel(
                                             initialPhotoId = photoId,
                                             albumName = albumName,
+                                            collectionId = collectionId,
                                             getPhotosUseCase = getPhotosUseCase,
                                             getAlbumsUseCase = getAlbumsUseCase,
                                             deletePhotosUseCase = deletePhotosUseCase,
@@ -223,7 +255,11 @@ class MainActivity : ComponentActivity() {
                                             faceDetectionDataSource = faceDetectionDataSource,
                                             objectDetectionDataSource = objectDetectionDataSource,
                                             barcodeDataSource = barcodeDataSource,
-                                            entityExtractionDataSource = entityExtractionDataSource
+                                            entityExtractionDataSource = entityExtractionDataSource,
+                                            getSmartCollectionsUseCase = getSmartCollectionsUseCase,
+                                            searchSmartPhotosUseCase = searchSmartPhotosUseCase,
+                                            getPhotosForClusterUseCase = getPhotosForClusterUseCase,
+                                            managePhotoTagsUseCase = managePhotoTagsUseCase
                                         ) as T
                                     }
                                 }

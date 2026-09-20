@@ -30,6 +30,14 @@ data class GalleryUiState(
     val appCollections: List<SmartCollectionItem> = emptyList(),
     val visualCollections: List<SmartCollectionItem> = emptyList(),
     val selectedSmartCollection: SmartCollectionItem? = null,
+    val faceClusters: List<com.jhendefr.pixelupia.domain.model.FaceCluster> = emptyList(),
+    val selectedFaceCluster: com.jhendefr.pixelupia.domain.model.FaceCluster? = null,
+    val selectedFaceClusterPhotos: List<Photo> = emptyList(),
+    val showAddPhotosToClusterDialog: Boolean = false,
+    val showMergeClusterDialog: Boolean = false,
+    val showChooseCoverDialog: Boolean = false,
+    val smartCollages: List<com.jhendefr.pixelupia.domain.model.SmartCollageItem> = emptyList(),
+    val selectedFilterType: String = "Todos",
     val hiddenCollectionIds: Set<String> = emptySet(),
     val hiddenCollections: List<SmartCollectionItem> = emptyList(),
     val showHiddenCollectionsDialog: Boolean = false,
@@ -60,6 +68,19 @@ sealed interface GalleryEvent {
     data class SelectAlbum(val albumName: String?) : GalleryEvent
     data class SelectIndexedFolder(val folderName: String?) : GalleryEvent
     data class SelectSmartCollection(val collection: SmartCollectionItem?) : GalleryEvent
+    data class SelectFaceCluster(val cluster: com.jhendefr.pixelupia.domain.model.FaceCluster?) : GalleryEvent
+    data class RenameFaceCluster(val clusterId: Long, val newName: String) : GalleryEvent
+    data class AddPhotoToFaceCluster(val clusterId: Long, val photo: Photo) : GalleryEvent
+    data class RemovePhotoFromFaceCluster(val clusterId: Long, val photoId: Long) : GalleryEvent
+    data class SetClusterCover(val clusterId: Long, val photo: Photo) : GalleryEvent
+    data class MergeFaceClusters(val targetClusterId: Long, val sourceClusterId: Long) : GalleryEvent
+    data class HideFaceCluster(val clusterId: Long) : GalleryEvent
+    data class ToggleAddPhotosToClusterDialog(val show: Boolean) : GalleryEvent
+    data class ToggleMergeClusterDialog(val show: Boolean) : GalleryEvent
+    data class ToggleChooseCoverDialog(val show: Boolean) : GalleryEvent
+    data class SelectFilterType(val filterType: String) : GalleryEvent
+    data class RemoveCollagePhoto(val collage: com.jhendefr.pixelupia.domain.model.SmartCollageItem, val photo: Photo) : GalleryEvent
+    data class AddCollagePhoto(val collage: com.jhendefr.pixelupia.domain.model.SmartCollageItem) : GalleryEvent
     data class TriggerBatchIndexFolder(val folderName: String) : GalleryEvent
     data class TriggerFolderMultimodalEnrichment(val folderName: String) : GalleryEvent
     data class TogglePhotoSelection(val photoId: Long) : GalleryEvent

@@ -1,16 +1,23 @@
 package com.jhendefr.pixelupia.ui.gallery
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,11 +30,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.compose.ui.graphics.Brush
+import com.jhendefr.pixelupia.domain.model.FaceCluster
 import com.jhendefr.pixelupia.domain.model.IndexedFolderInfo
 import com.jhendefr.pixelupia.domain.model.Photo
+import com.jhendefr.pixelupia.domain.model.SmartCollageItem
 import com.jhendefr.pixelupia.domain.usecase.SmartCollectionItem
 import com.jhendefr.pixelupia.domain.usecase.SmartCollectionType
+import com.jhendefr.pixelupia.ui.gallery.components.CollageCanvasCard
+import com.jhendefr.pixelupia.ui.gallery.components.PersonPetAvatarRow
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SmartGalleryView(
     searchQuery: String,
@@ -52,6 +65,27 @@ fun SmartGalleryView(
     activeEnrichingFolder: String? = null,
     selectedIds: Set<Long>,
     isSelectionMode: Boolean,
+    faceClusters: List<FaceCluster> = emptyList(),
+    selectedFaceCluster: FaceCluster? = null,
+    selectedFaceClusterPhotos: List<Photo> = emptyList(),
+    showAddPhotosToClusterDialog: Boolean = false,
+    showMergeClusterDialog: Boolean = false,
+    showChooseCoverDialog: Boolean = false,
+    onSelectFaceCluster: (FaceCluster?) -> Unit = {},
+    onRenameFaceCluster: (Long, String) -> Unit = { _, _ -> },
+    onToggleAddPhotosToClusterDialog: (Boolean) -> Unit = {},
+    onToggleMergeClusterDialog: (Boolean) -> Unit = {},
+    onToggleChooseCoverDialog: (Boolean) -> Unit = {},
+    onSetClusterCover: (Long, Photo) -> Unit = { _, _ -> },
+    onMergeFaceClusters: (Long, Long) -> Unit = { _, _ -> },
+    onHideFaceCluster: (Long) -> Unit = {},
+    onAddPhotoToFaceCluster: (Long, Photo) -> Unit = { _, _ -> },
+    onRemovePhotoFromFaceCluster: (Long, Long) -> Unit = { _, _ -> },
+    smartCollages: List<SmartCollageItem> = emptyList(),
+    selectedFilterType: String = "Todos",
+    onSelectFilterType: (String) -> Unit = {},
+    onRemoveCollagePhoto: (SmartCollageItem, Photo) -> Unit = { _, _ -> },
+    onAddCollagePhoto: (SmartCollageItem) -> Unit = {},
     onQueryChange: (String) -> Unit,
     onSelectFolder: (String?) -> Unit,
     onSelectSmartCollection: (SmartCollectionItem?) -> Unit = {},
@@ -63,10 +97,12 @@ fun SmartGalleryView(
     onToggleShowIndexedCount: () -> Unit = {},
     onTriggerBatchIndex: (String) -> Unit,
     onTriggerFolderEnrichment: (String) -> Unit = {},
-    onPhotoClick: (Photo) -> Unit,
+    onPhotoClick: (Photo, String?) -> Unit,
     onToggleSelection: (Long) -> Unit
 ) {
     var showSmartOptionsMenu by remember { mutableStateOf(false) }
+    var showClusterMenu by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
 
     // Dialogo de Colecciones Ocultas
     if (showHiddenCollectionsDialog) {
@@ -87,12 +123,276 @@ fun SmartGalleryView(
         )
     }
 
+    // Dialogo para anadir fotos al cluster de persona / mascota
+    if (showAddPhotosToClusterDialog && selectedFaceCluster != null) {
+        AddPhotosToClusterDialog(
+            clusterName = selectedFaceCluster.name,
+            allPhotos = allPhotos,
+            existingPhotoIds = selectedFaceClusterPhotos.map { it.id }.toSet(),
+            chosenIndexFolders = chosenIndexFolders,
+            onAddPhoto = { photo -> onAddPhotoToFaceCluster(selectedFaceCluster.id, photo) },
+            onDismiss = { onToggleAddPhotosToClusterDialog(false) }
+        )
+    }
+
+    // Dialogo para combinar clusters de personas / mascotas
+    if (showMergeClusterDialog && selectedFaceCluster != null) {
+        MergeClusterDialog(
+            sourceCluster = selectedFaceCluster,
+            availableClusters = faceClusters,
+            onMerge = { targetClusterId -> onMergeFaceClusters(targetClusterId, selectedFaceCluster.id) },
+            onDismiss = { onToggleMergeClusterDialog(false) }
+        )
+    }
+
+    // Dialogo para elegir foto de portada del grupo
+    if (showChooseCoverDialog && selectedFaceCluster != null) {
+        ChooseCoverDialog(
+            clusterName = selectedFaceCluster.name,
+            photos = selectedFaceClusterPhotos,
+            onSelectCover = { photo -> onSetClusterCover(selectedFaceCluster.id, photo) },
+            onDismiss = { onToggleChooseCoverDialog(false) }
+        )
+    }
+
+    // Dialogo para renombrar / agregar nombre al grupo
+    if (showRenameDialog && selectedFaceCluster != null) {
+        var newNameText by remember(selectedFaceCluster) {
+            mutableStateOf(if (selectedFaceCluster.isUserNamed) selectedFaceCluster.name else "")
+        }
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = {
+                Text(if (selectedFaceCluster.isUserNamed) "Cambiar nombre" else "Agregar nombre")
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Asigna un nombre a este grupo de " + (if (selectedFaceCluster.isPet) "mascotas" else "personas") + " para identificarlo facilmente y buscarlo por su nombre.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = newNameText,
+                        onValueChange = { newNameText = it },
+                        label = { Text("Nombre") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newNameText.isNotBlank()) {
+                            onRenameFaceCluster(selectedFaceCluster.id, newNameText.trim())
+                        }
+                        showRenameDialog = false
+                    },
+                    enabled = newNameText.isNotBlank()
+                ) {
+                    Text("Guardar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 12.dp)
     ) {
-        if (selectedSmartCollection != null) {
+        if (selectedFaceCluster != null) {
+            BackHandler(enabled = !isSelectionMode && selectedFaceCluster != null) {
+                onSelectFaceCluster(null)
+            }
+            val clusterPhotos = selectedFaceClusterPhotos
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { onSelectFaceCluster(null) }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver"
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { showRenameDialog = true }
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (selectedFaceCluster.isUserNamed) selectedFaceCluster.name else "Agregar nombre",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selectedFaceCluster.isUserNamed) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Editar nombre",
+                                tint = if (selectedFaceCluster.isUserNamed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Text(
+                            text = if (selectedFaceCluster.isPet) "Mascota - ${clusterPhotos.size} fotos" else "Persona - ${clusterPhotos.size} fotos",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Box {
+                        IconButton(onClick = { showClusterMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Opciones del grupo"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showClusterMenu,
+                            onDismissRequest = { showClusterMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Añadir fotos") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = null)
+                                },
+                                onClick = {
+                                    showClusterMenu = false
+                                    onToggleAddPhotosToClusterDialog(true)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Combinar con otro grupo") },
+                                leadingIcon = {
+                                    Icon(Icons.AutoMirrored.Filled.CallMerge, contentDescription = null)
+                                },
+                                onClick = {
+                                    showClusterMenu = false
+                                    onToggleMergeClusterDialog(true)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Elegir portada") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                                },
+                                onClick = {
+                                    showClusterMenu = false
+                                    onToggleChooseCoverDialog(true)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Cambiar nombre") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Edit, contentDescription = null)
+                                },
+                                onClick = {
+                                    showClusterMenu = false
+                                    showRenameDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ocultar grupo", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                },
+                                onClick = {
+                                    showClusterMenu = false
+                                    onHideFaceCluster(selectedFaceCluster.id)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (clusterPhotos.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "No hay fotos en esta agrupacion.",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(onClick = { onToggleAddPhotosToClusterDialog(true) }) {
+                                Icon(imageVector = Icons.Default.AddPhotoAlternate, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Añadir fotos")
+                            }
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 110.dp),
+                        contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 80.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(clusterPhotos, key = { it.id }) { photo ->
+                            val isSelected = selectedIds.contains(photo.id)
+                            Box(
+                                modifier = Modifier
+                                    .padding(3.dp)
+                                    .aspectRatio(1f)
+                                    .clip(MaterialTheme.shapes.medium)
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (isSelectionMode) onToggleSelection(photo.id)
+                                            else onPhotoClick(photo, "cluster_${selectedFaceCluster.id}")
+                                        },
+                                        onLongClick = {
+                                            onToggleSelection(photo.id)
+                                        }
+                                    )
+                            ) {
+                                AsyncImage(
+                                    model = photo.uri,
+                                    contentDescription = photo.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                if (isSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black.copy(alpha = 0.45f))
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Seleccionada",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(8.dp)
+                                            .size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (selectedSmartCollection != null) {
             // 1. Vista de Detalle de Coleccion Inteligente (App o Categoria Visual)
             val collectionPhotos = if (searchQuery.isBlank()) {
                 selectedSmartCollection.photos
@@ -164,7 +464,7 @@ fun SmartGalleryView(
                     photos = collectionPhotos,
                     selectedIds = selectedIds,
                     isSelectionMode = isSelectionMode,
-                    onPhotoClick = onPhotoClick,
+                    onPhotoClick = { photo -> onPhotoClick(photo, selectedSmartCollection.id) },
                     onToggleSelection = onToggleSelection
                 )
             }
@@ -233,7 +533,7 @@ fun SmartGalleryView(
                     photos = displayedPhotos,
                     selectedIds = selectedIds,
                     isSelectionMode = isSelectionMode,
-                    onPhotoClick = onPhotoClick,
+                    onPhotoClick = { photo -> onPhotoClick(photo, "folder_$selectedIndexedFolder") },
                     onToggleSelection = onToggleSelection
                 )
             }
@@ -386,7 +686,7 @@ fun SmartGalleryView(
                                                 .weight(1f)
                                                 .aspectRatio(1f)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .clickable { onPhotoClick(photo) }
+                                                .clickable { onPhotoClick(photo, "search_$searchQuery") }
                                         ) {
                                             AsyncImage(
                                                 model = photo.uri,
@@ -404,18 +704,78 @@ fun SmartGalleryView(
                         }
                     }
                 } else {
-                    // SECCION 1: Cabecera General de Colecciones Inteligentes
-                    if (appCollections.isNotEmpty() || visualCollections.isNotEmpty() || hiddenCollections.isNotEmpty()) {
+                    // SECCION 1: Acceso Rapido a Gente y Mascotas
+                    item {
+                        PersonPetAvatarRow(
+                            clusters = faceClusters,
+                            selectedClusterId = selectedFaceCluster?.id,
+                            onSelectCluster = onSelectFaceCluster,
+                            onRenameCluster = onRenameFaceCluster
+                        )
+                    }
+
+                    // SECCION 2: Filtro Rapido por Tipo (Chips)
+                    item {
+                        val filterChips = listOf("Todos", "Lugares", "Documentos", "Ropa", "Eventos", "Pagos", "Mascotas", "Codigos QR")
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(filterChips) { filter ->
+                                val isSelected = filter.equals(selectedFilterType, ignoreCase = true)
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onSelectFilterType(filter) },
+                                    label = { Text(filter) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // SECCION 3: Canvas de Recuerdos y Collages
+                    if (smartCollages.isNotEmpty()) {
                         item {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    text = "Recuerdos y Collages Sugeridos",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                smartCollages.forEach { collage ->
+                                    CollageCanvasCard(
+                                        collage = collage,
+                                        onPhotoClick = { photo -> onPhotoClick(photo, null) },
+                                        onRemovePhoto = onRemoveCollagePhoto,
+                                        onAddPhotoClick = onAddCollagePhoto
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // SECCION 4: Cuadricula de Albumes Inteligentes (Aspecto Fotografico 4:3 y Conteo Dinamico)
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Column {
                                 Text(
-                                    text = "Colecciones Inteligentes",
+                                    text = "Albumes Inteligentes",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "Apps de origen y categorias visuales",
+                                    text = if (selectedFilterType == "Todos") "Todas las colecciones" else "Filtro: $selectedFilterType",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -423,54 +783,77 @@ fun SmartGalleryView(
                         }
                     }
 
-                    // CARRUSEL 1: Apps de Origen
-                    if (appCollections.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    text = "Apps de Origen",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 2.dp)
-                                ) {
-                                    items(appCollections, key = { it.id }) { collection ->
-                                        SmartCollectionCarouselCard(
-                                            collection = collection,
-                                            onClick = { onSelectSmartCollection(collection) },
-                                            onHide = { onHideCollection(collection.id) }
-                                        )
-                                    }
-                                }
+                    val displayCollections = run {
+                        val baseVisual = when (selectedFilterType) {
+                            "Lugares" -> visualCollections.filter { c ->
+                                val t = c.title.lowercase(java.util.Locale.ROOT)
+                                t.contains("playa") || t.contains("montana") || t.contains("edificio") || t.contains("casa") || t.contains("naturaleza") || t.contains("flor")
                             }
+                            "Documentos" -> visualCollections.filter { c ->
+                                val t = c.title.lowercase(java.util.Locale.ROOT)
+                                t.contains("documento") || t.contains("pasaporte") || t.contains("papel") || t.contains("credencial")
+                            }
+                            "Ropa" -> visualCollections.filter { c ->
+                                val t = c.title.lowercase(java.util.Locale.ROOT)
+                                t.contains("camisa") || t.contains("ropa") || t.contains("vestido") || t.contains("zapato") || t.contains("pantal")
+                            }
+                            "Eventos" -> visualCollections.filter { c ->
+                                val t = c.title.lowercase(java.util.Locale.ROOT)
+                                t.contains("fiesta") || t.contains("boda") || t.contains("concierto") || t.contains("celebraci") || t.contains("evento")
+                            }
+                            "Pagos" -> visualCollections.filter { c ->
+                                val t = c.title.lowercase(java.util.Locale.ROOT)
+                                t.contains("pago") || t.contains("factura") || t.contains("recibo") || t.contains("dinero") || t.contains("tarjeta")
+                            }
+                            "Mascotas" -> visualCollections.filter { c ->
+                                val t = c.title.lowercase(java.util.Locale.ROOT)
+                                t.contains("perro") || t.contains("gato") || t.contains("mascota") || t.contains("animal")
+                            }
+                            "Codigos QR" -> visualCollections.filter { c ->
+                                val t = c.title.lowercase(java.util.Locale.ROOT)
+                                t.contains("qr") || t.contains("codigo") || t.contains("barcode")
+                            }
+                            else -> visualCollections
+                        }
+                        if (selectedFilterType == "Todos") {
+                            appCollections + baseVisual
+                        } else {
+                            baseVisual
                         }
                     }
 
-                    // CARRUSEL 2: Categorias Visuales
-                    if (visualCollections.isNotEmpty()) {
+                    if (displayCollections.isEmpty()) {
                         item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow
+                            ) {
                                 Text(
-                                    text = "Categorias Visuales",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.secondary
+                                    text = "No hay albumes para el filtro '$selectedFilterType'",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp)
                                 )
-
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 2.dp)
+                            }
+                        }
+                    } else {
+                        displayCollections.chunked(2).forEach { rowCollections ->
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    items(visualCollections, key = { it.id }) { collection ->
-                                        SmartCollectionCarouselCard(
+                                    for (collection in rowCollections) {
+                                        SmartCollectionGridCard(
                                             collection = collection,
                                             onClick = { onSelectSmartCollection(collection) },
-                                            onHide = { onHideCollection(collection.id) }
+                                            onHide = { onHideCollection(collection.id) },
+                                            modifier = Modifier.weight(1f)
                                         )
+                                    }
+                                    if (rowCollections.size == 1) {
+                                        Spacer(modifier = Modifier.weight(1f))
                                     }
                                 }
                             }
@@ -511,6 +894,134 @@ fun SmartGalleryView(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SmartCollectionGridCard(
+    collection: SmartCollectionItem,
+    onClick: () -> Unit,
+    onHide: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(4f / 3f)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (collection.coverUri != null) {
+                AsyncImage(
+                    model = collection.coverUri,
+                    contentDescription = collection.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (collection.type == SmartCollectionType.SOURCE_APP) Icons.Default.Apps else Icons.Default.Category,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            // Gradiente oscuro inferior para garantizar legibilidad del texto
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f)),
+                            startY = 80f
+                        )
+                    )
+            )
+
+            // Conteo dinamico superior
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = "${collection.count} fotos",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+
+            // Menu de opciones superior derecho
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+            ) {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Opciones",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Ocultar coleccion") },
+                        leadingIcon = {
+                            Icon(Icons.Default.VisibilityOff, contentDescription = null)
+                        },
+                        onClick = {
+                            showMenu = false
+                            onHide()
+                        }
+                    )
+                }
+            }
+
+            // Titulo inferior
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = collection.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -995,4 +1506,235 @@ fun IndexedFolderCard(
             }
         }
     }
+}
+
+@Composable
+fun AddPhotosToClusterDialog(
+    clusterName: String,
+    allPhotos: List<Photo>,
+    existingPhotoIds: Set<Long>,
+    chosenIndexFolders: Set<String> = emptySet(),
+    onAddPhoto: (Photo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val candidatePhotos = remember(allPhotos, existingPhotoIds, chosenIndexFolders) {
+        allPhotos.filter { photo ->
+            !existingPhotoIds.contains(photo.id) &&
+            (chosenIndexFolders.isEmpty() || chosenIndexFolders.any { folder ->
+                photo.folderName.equals(folder, ignoreCase = true) || photo.folderName.contains(folder, ignoreCase = true)
+            })
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Añadir fotos a $clusterName",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            if (candidatePhotos.isEmpty()) {
+                Text(
+                    text = "No hay mas fotos disponibles en las carpetas seleccionadas para indexar.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column(modifier = Modifier.fillMaxWidth().height(380.dp)) {
+                    Text(
+                        text = "Selecciona una foto para asociarla a este grupo y reforzar el aprendizaje del modelo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 85.dp),
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(candidatePhotos, key = { it.id }) { photo ->
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        onAddPhoto(photo)
+                                        onDismiss()
+                                    }
+                            ) {
+                                AsyncImage(
+                                    model = photo.uri,
+                                    contentDescription = photo.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cerrar")
+            }
+        }
+    )
+}
+
+@Composable
+fun MergeClusterDialog(
+    sourceCluster: FaceCluster,
+    availableClusters: List<FaceCluster>,
+    onMerge: (targetClusterId: Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val compatibleClusters = remember(sourceCluster, availableClusters) {
+        availableClusters.filter { it.id != sourceCluster.id && it.isPet == sourceCluster.isPet }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Combinar \"${sourceCluster.name}\"",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            if (compatibleClusters.isEmpty()) {
+                Text(
+                    text = "No hay otros grupos de " + (if (sourceCluster.isPet) "mascotas" else "personas") + " disponibles para combinar.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
+                    Text(
+                        text = "Selecciona el grupo de destino con el cual deseas fusionar todas las fotos y promediar sus vectores caracteristicos.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(compatibleClusters, key = { it.id }) { cluster ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        onMerge(cluster.id)
+                                        onDismiss()
+                                    }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = cluster.coverUri,
+                                    contentDescription = cluster.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = cluster.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${cluster.photoCount} fotos",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+@Composable
+fun ChooseCoverDialog(
+    clusterName: String,
+    photos: List<Photo>,
+    onSelectCover: (Photo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Elegir portada para $clusterName",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            if (photos.isEmpty()) {
+                Text(
+                    text = "No hay fotos en este grupo.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column(modifier = Modifier.fillMaxWidth().height(380.dp)) {
+                    Text(
+                        text = "Toca una foto para seleccionarla como la imagen de portada de este grupo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 85.dp),
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(photos, key = { it.id }) { photo ->
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        onSelectCover(photo)
+                                        onDismiss()
+                                    }
+                            ) {
+                                AsyncImage(
+                                    model = photo.uri,
+                                    contentDescription = photo.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
 }
