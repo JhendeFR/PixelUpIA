@@ -99,7 +99,52 @@ class GetSmartCollectionsUseCase(
 
                     // Categoria: Personas / Rostros
                     if (entity.hasFaces || entity.labels.any { it.startsWith("Persona", ignoreCase = true) }) {
-                        visualCategoryMap.getOrOrPut("Personas") { mutableListOf() }.add(photo)
+                        val list = visualCategoryMap.getOrOrPut("Personas") { mutableListOf() }
+                        if (list.none { it.id == photo.id }) {
+                            list.add(photo)
+                        }
+                    }
+
+                    // Categoria: Codigos QR y Barras
+                    if (entity.barcodes.isNotEmpty()) {
+                        val list = visualCategoryMap.getOrOrPut("Codigos QR") { mutableListOf() }
+                        if (list.none { it.id == photo.id }) {
+                            list.add(photo)
+                        }
+                    }
+
+                    // Categoria: Pagos y Facturas
+                    val hasPaymentEntities = entity.entities.any {
+                        it.startsWith("Dinero:", ignoreCase = true) ||
+                        it.startsWith("Tarjeta:", ignoreCase = true) ||
+                        it.startsWith("IBAN:", ignoreCase = true)
+                    }
+                    val hasPaymentLabel = entity.labels.any {
+                        it.startsWith("Recibo", ignoreCase = true) ||
+                        it.startsWith("Dinero", ignoreCase = true)
+                    }
+                    val hasPaymentText = containsPaymentKeywords(entity.textContent)
+
+                    if (hasPaymentEntities || hasPaymentLabel || hasPaymentText) {
+                        val list = visualCategoryMap.getOrOrPut("Pagos y Facturas") { mutableListOf() }
+                        if (list.none { it.id == photo.id }) {
+                            list.add(photo)
+                        }
+                    }
+
+                    // Categoria: Documentos Personales y Credenciales
+                    val hasDocumentLabel = entity.labels.any {
+                        it.startsWith("Pasaporte", ignoreCase = true) ||
+                        it.startsWith("Papel", ignoreCase = true) ||
+                        it.startsWith("Documento", ignoreCase = true)
+                    }
+                    val hasDocumentText = containsDocumentKeywords(entity.textContent)
+
+                    if (hasDocumentLabel || hasDocumentText) {
+                        val list = visualCategoryMap.getOrOrPut("Documentos") { mutableListOf() }
+                        if (list.none { it.id == photo.id }) {
+                            list.add(photo)
+                        }
                     }
 
                     // Categorias extraidas de las etiquetas de ML Kit
@@ -109,7 +154,11 @@ class GetSmartCollectionsUseCase(
                             !labelName.equals("Objeto", ignoreCase = true) &&
                             !labelName.equals("Objeto detectado", ignoreCase = true) &&
                             !labelName.equals("Persona", ignoreCase = true) &&
-                            !labelName.equals("Personas", ignoreCase = true)
+                            !labelName.equals("Personas", ignoreCase = true) &&
+                            !labelName.equals("Recibo", ignoreCase = true) &&
+                            !labelName.equals("Dinero", ignoreCase = true) &&
+                            !labelName.equals("Papel", ignoreCase = true) &&
+                            !labelName.equals("Pasaporte", ignoreCase = true)
                         ) {
                             val categoryTitle = pluralizeCategory(labelName)
                             val list = visualCategoryMap.getOrOrPut(categoryTitle) { mutableListOf() }
@@ -140,6 +189,16 @@ class GetSmartCollectionsUseCase(
         }
     }
 
+    private fun containsPaymentKeywords(text: String): Boolean {
+        if (text.isBlank()) return false
+        return PAYMENT_KEYWORDS_REGEX.containsMatchIn(text)
+    }
+
+    private fun containsDocumentKeywords(text: String): Boolean {
+        if (text.isBlank()) return false
+        return DOCUMENT_KEYWORDS_REGEX.containsMatchIn(text)
+    }
+
     private fun pluralizeCategory(name: String): String {
         val trimmed = name.trim()
         val lower = trimmed.lowercase(Locale.ROOT)
@@ -168,5 +227,15 @@ class GetSmartCollectionsUseCase(
         } else {
             value
         }
+    }
+
+    companion object {
+        private val PAYMENT_KEYWORDS_REGEX = Regex(
+            "(?i)\\b(factura|recibo|invoice|comprobante|transferencia|voucher|subtotal|total a pagar|pago exitoso|pago realizado|importe total|cuenta bancaria)\\b"
+        )
+
+        private val DOCUMENT_KEYWORDS_REGEX = Regex(
+            "(?i)\\b(dni|cedula|c[eé]dula|pasaporte|identificacion|identificaci[oó]n|licencia de conducir|curp|rut|acta de nacimiento|certificado|contrato|constancia)\\b"
+        )
     }
 }

@@ -210,6 +210,12 @@ fun ViewerScreen(
             onTriggerEnrichment = {
                 viewModel.onEvent(ViewerEvent.TriggerFullMultimodalEnrichment(currentPhoto))
             },
+            onAddTag = { tag ->
+                viewModel.onEvent(ViewerEvent.AddTag(currentPhoto.id, tag))
+            },
+            onRemoveTag = { tag ->
+                viewModel.onEvent(ViewerEvent.RemoveTag(currentPhoto.id, tag))
+            },
             onDismiss = {
                 viewModel.onEvent(ViewerEvent.DismissMultimodalDetailsSheet)
             }

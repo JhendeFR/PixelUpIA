@@ -27,7 +27,12 @@ class GalleryViewModel(
     private val getSmartCollectionsUseCase: GetSmartCollectionsUseCase,
     private val preferencesDataSource: SmartGalleryPreferencesDataSource,
     private val unindexPhotoUseCase: UnindexPhotoUseCase,
-    private val enrichScreenshotUseCase: EnrichScreenshotUseCase
+    private val enrichScreenshotUseCase: EnrichScreenshotUseCase,
+    private val getFaceClustersUseCase: com.jhendefr.pixelupia.domain.usecase.GetFaceClustersUseCase? = null,
+    private val manageFaceClusterUseCase: com.jhendefr.pixelupia.domain.usecase.ManageFaceClusterUseCase? = null,
+    private val getPhotosForClusterUseCase: com.jhendefr.pixelupia.domain.usecase.GetPhotosForClusterUseCase? = null,
+    private val smartCollageGenerator: com.jhendefr.pixelupia.domain.usecase.SmartCollageGenerator = com.jhendefr.pixelupia.domain.usecase.SmartCollageGenerator(),
+    private val context: android.content.Context? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GalleryUiState())
@@ -38,11 +43,13 @@ class GalleryViewModel(
     private var cachedAllAppCollections: List<SmartCollectionItem> = emptyList()
     private var cachedAllVisualCollections: List<SmartCollectionItem> = emptyList()
     private var indexedFoldersJob: Job? = null
+    private var clusterPhotosJob: Job? = null
 
     init {
         loadData()
         observeSmartPhotos()
         observePreferences()
+        observeFaceClusters()
     }
 
     private fun observeSmartPhotos() {
@@ -211,6 +218,157 @@ class GalleryViewModel(
             }
             GalleryEvent.ClearSelection -> {
                 _uiState.update { it.copy(selectedPhotoIds = emptySet()) }
+            }
+            is GalleryEvent.SelectFaceCluster -> {
+                clusterPhotosJob?.cancel()
+                if (event.cluster != null) {
+                    _uiState.update {
+                        it.copy(
+                            selectedFaceCluster = event.cluster,
+                            selectedSmartCollection = null,
+                            selectedIndexedFolderName = null
+                        )
+                    }
+                    clusterPhotosJob = viewModelScope.launch {
+                        getPhotosForClusterUseCase?.invoke(event.cluster.id)?.collect { photos ->
+                            _uiState.update { it.copy(selectedFaceClusterPhotos = photos) }
+                        }
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            selectedFaceCluster = null,
+                            selectedFaceClusterPhotos = emptyList()
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.RenameFaceCluster -> {
+                viewModelScope.launch {
+                    manageFaceClusterUseCase?.renameCluster(event.clusterId, event.newName)
+                    _uiState.update { it.copy(userMessage = "Grupo renombrado con exito") }
+                }
+            }
+            is GalleryEvent.AddPhotoToFaceCluster -> {
+                viewModelScope.launch {
+                    val bitmap = context?.let { ctx ->
+                        runCatching {
+                            ctx.contentResolver.openInputStream(event.photo.uri)?.use { stream ->
+                                android.graphics.BitmapFactory.decodeStream(stream)
+                            }
+                        }.getOrNull()
+                    }
+                    manageFaceClusterUseCase?.addPhotoToCluster(event.photo, event.clusterId, bitmap)
+                    _uiState.update { it.copy(userMessage = "Foto agregada al grupo") }
+                }
+            }
+            is GalleryEvent.RemovePhotoFromFaceCluster -> {
+                _uiState.update {
+                    it.copy(
+                        selectedFaceClusterPhotos = it.selectedFaceClusterPhotos.filterNot { p -> p.id == event.photoId }
+                    )
+                }
+                viewModelScope.launch {
+                    val photo = _uiState.value.photos.find { it.id == event.photoId }
+                    val bitmap = photo?.let { p ->
+                        context?.let { ctx ->
+                            runCatching {
+                                ctx.contentResolver.openInputStream(p.uri)?.use { stream ->
+                                    android.graphics.BitmapFactory.decodeStream(stream)
+                                }
+                            }.getOrNull()
+                        }
+                    }
+                    manageFaceClusterUseCase?.removePhotoFromCluster(event.photoId, event.clusterId, bitmap)
+                    _uiState.update { it.copy(userMessage = "Foto quitada del grupo") }
+                }
+            }
+            is GalleryEvent.SetClusterCover -> {
+                viewModelScope.launch {
+                    val bitmap = context?.let { ctx ->
+                        runCatching {
+                            ctx.contentResolver.openInputStream(event.photo.uri)?.use { stream ->
+                                android.graphics.BitmapFactory.decodeStream(stream)
+                            }
+                        }.getOrNull()
+                    }
+                    manageFaceClusterUseCase?.setClusterCover(event.clusterId, event.photo, bitmap)
+                    _uiState.update { state ->
+                        val updatedCluster = if (state.selectedFaceCluster?.id == event.clusterId) {
+                            state.selectedFaceCluster.copy(coverUri = event.photo.uri)
+                        } else {
+                            state.selectedFaceCluster
+                        }
+                        state.copy(
+                            selectedFaceCluster = updatedCluster,
+                            showChooseCoverDialog = false,
+                            userMessage = "Foto de portada actualizada"
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.MergeFaceClusters -> {
+                viewModelScope.launch {
+                    manageFaceClusterUseCase?.mergeClusters(event.targetClusterId, event.sourceClusterId)
+                    _uiState.update {
+                        it.copy(
+                            showMergeClusterDialog = false,
+                            selectedFaceCluster = null,
+                            selectedFaceClusterPhotos = emptyList(),
+                            userMessage = "Grupos combinados con exito"
+                        )
+                    }
+                    _searchQueryFlow.value = _uiState.value.smartSearchQuery
+                }
+            }
+            is GalleryEvent.HideFaceCluster -> {
+                viewModelScope.launch {
+                    manageFaceClusterUseCase?.hideCluster(event.clusterId)
+                    _uiState.update {
+                        it.copy(
+                            selectedFaceCluster = null,
+                            selectedFaceClusterPhotos = emptyList(),
+                            userMessage = "Grupo ocultado"
+                        )
+                    }
+                    _searchQueryFlow.value = _uiState.value.smartSearchQuery
+                }
+            }
+            is GalleryEvent.ToggleAddPhotosToClusterDialog -> {
+                _uiState.update { it.copy(showAddPhotosToClusterDialog = event.show) }
+            }
+            is GalleryEvent.ToggleMergeClusterDialog -> {
+                _uiState.update { it.copy(showMergeClusterDialog = event.show) }
+            }
+            is GalleryEvent.ToggleChooseCoverDialog -> {
+                _uiState.update { it.copy(showChooseCoverDialog = event.show) }
+            }
+            is GalleryEvent.SelectFilterType -> {
+                _uiState.update { it.copy(selectedFilterType = event.filterType) }
+            }
+            is GalleryEvent.RemoveCollagePhoto -> {
+                _uiState.update { state ->
+                    val updatedCollages = state.smartCollages.map { c ->
+                        if (c.id == event.collage.id) {
+                            c.copy(photos = c.photos.filterNot { it.id == event.photo.id })
+                        } else c
+                    }
+                    state.copy(smartCollages = updatedCollages)
+                }
+            }
+            is GalleryEvent.AddCollagePhoto -> {
+                _uiState.update { state ->
+                    val existingIds = event.collage.photos.map { it.id }.toSet()
+                    val candidate = state.photos.firstOrNull { !existingIds.contains(it.id) }
+                    if (candidate != null) {
+                        val updatedCollages = state.smartCollages.map { c ->
+                            if (c.id == event.collage.id) {
+                                c.copy(photos = c.photos + candidate)
+                            } else c
+                        }
+                        state.copy(smartCollages = updatedCollages)
+                    } else state
+                }
             }
             GalleryEvent.Refresh -> {
                 loadData()
@@ -436,17 +594,28 @@ class GalleryViewModel(
                     }
                 }
                 .collect { (photos, albums, favorites) ->
+                    val collages = smartCollageGenerator.generateSuggestedCollages(photos)
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             photos = photos,
                             albums = albums,
-                            favoritePhotoIds = favorites
+                            favoritePhotoIds = favorites,
+                            smartCollages = collages
                         )
                     }
                     observeIndexedFolders(photos, _uiState.value.chosenIndexFolders)
                     observeSmartCollections(photos)
                 }
+        }
+    }
+
+    private fun observeFaceClusters() {
+        if (getFaceClustersUseCase == null) return
+        viewModelScope.launch {
+            getFaceClustersUseCase().collect { clusters ->
+                _uiState.update { it.copy(faceClusters = clusters) }
+            }
         }
     }
 }

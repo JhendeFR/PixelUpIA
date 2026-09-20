@@ -109,11 +109,16 @@ sealed interface ViewerEvent {
     data class SelectTextBlock(val blockId: String?) : ViewerEvent
     object ToggleOcrDetailsSheet : ViewerEvent
     object CloseOcrOverlay : ViewerEvent
+
+    // Gestion de Etiquetas / Categorias Manuales
+    data class AddTag(val photoId: Long, val tag: String) : ViewerEvent
+    data class RemoveTag(val photoId: Long, val tag: String) : ViewerEvent
 }
 
 class ViewerViewModel(
     private val initialPhotoId: Long,
     private val albumName: String?,
+    private val collectionId: String? = null,
     private val getPhotosUseCase: GetPhotosUseCase,
     private val getAlbumsUseCase: GetAlbumsUseCase,
     private val deletePhotosUseCase: DeletePhotosUseCase,
@@ -128,7 +133,11 @@ class ViewerViewModel(
     private val faceDetectionDataSource: FaceDetectionDataSource,
     private val objectDetectionDataSource: ObjectDetectionDataSource,
     private val barcodeDataSource: BarcodeDataSource,
-    private val entityExtractionDataSource: EntityExtractionDataSource
+    private val entityExtractionDataSource: EntityExtractionDataSource,
+    private val getSmartCollectionsUseCase: com.jhendefr.pixelupia.domain.usecase.GetSmartCollectionsUseCase? = null,
+    private val searchSmartPhotosUseCase: com.jhendefr.pixelupia.domain.usecase.SearchSmartPhotosUseCase? = null,
+    private val getPhotosForClusterUseCase: com.jhendefr.pixelupia.domain.usecase.GetPhotosForClusterUseCase? = null,
+    private val managePhotoTagsUseCase: com.jhendefr.pixelupia.domain.usecase.ManagePhotoTagsUseCase? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ViewerUiState())
@@ -478,6 +487,40 @@ class ViewerViewModel(
                 _uiState.update { it.copy(showMultimodalDetailsSheet = false) }
             }
 
+            is ViewerEvent.AddTag -> {
+                viewModelScope.launch {
+                    val result = managePhotoTagsUseCase?.addTag(event.photoId, event.tag)
+                    result?.onSuccess { updatedLabels ->
+                        _uiState.update { state ->
+                            val currentMeta = state.multimodalMetadata
+                            state.copy(
+                                multimodalMetadata = currentMeta?.copy(labels = updatedLabels),
+                                userMessage = "Etiqueta agregada con exito"
+                            )
+                        }
+                    }?.onFailure { err ->
+                        _uiState.update { it.copy(userMessage = "Error al agregar etiqueta: ${err.message}") }
+                    }
+                }
+            }
+
+            is ViewerEvent.RemoveTag -> {
+                viewModelScope.launch {
+                    val result = managePhotoTagsUseCase?.removeTag(event.photoId, event.tag)
+                    result?.onSuccess { updatedLabels ->
+                        _uiState.update { state ->
+                            val currentMeta = state.multimodalMetadata
+                            state.copy(
+                                multimodalMetadata = currentMeta?.copy(labels = updatedLabels),
+                                userMessage = "Etiqueta removida con exito"
+                            )
+                        }
+                    }?.onFailure { err ->
+                        _uiState.update { it.copy(userMessage = "Error al remover etiqueta: ${err.message}") }
+                    }
+                }
+            }
+
             is ViewerEvent.SelectTextBlock -> {
                 _uiState.update { it.copy(selectedBlockId = event.blockId, showOcrDetailsSheet = true) }
             }
@@ -618,28 +661,70 @@ class ViewerViewModel(
 
     private fun loadPhotos() {
         viewModelScope.launch {
-            getPhotosUseCase().collect { allPhotos ->
-                val displayPhotos = if (!albumName.isNullOrEmpty()) {
-                    allPhotos.filter { it.folderName == albumName }
-                } else {
-                    allPhotos
+            if (!collectionId.isNullOrEmpty()) {
+                when {
+                    collectionId.startsWith("folder_") -> {
+                        val folder = collectionId.removePrefix("folder_")
+                        getPhotosUseCase().collect { allPhotos ->
+                            val filtered = allPhotos.filter { it.folderName == folder }
+                            updateDisplayPhotos(filtered)
+                        }
+                    }
+                    collectionId.startsWith("cluster_") -> {
+                        val clusterId = collectionId.removePrefix("cluster_").toLongOrNull() ?: 0L
+                        getPhotosForClusterUseCase?.invoke(clusterId)?.collect { clusterPhotos ->
+                            updateDisplayPhotos(clusterPhotos)
+                        } ?: run {
+                            getPhotosUseCase().collect { updateDisplayPhotos(it) }
+                        }
+                    }
+                    collectionId.startsWith("search_") -> {
+                        val query = collectionId.removePrefix("search_")
+                        searchSmartPhotosUseCase?.invoke(query)?.collect { searchPhotos ->
+                            updateDisplayPhotos(searchPhotos)
+                        } ?: run {
+                            getPhotosUseCase().collect { updateDisplayPhotos(it) }
+                        }
+                    }
+                    collectionId.startsWith("app_") || collectionId.startsWith("visual_") -> {
+                        getPhotosUseCase().collect { allPhotos ->
+                            getSmartCollectionsUseCase?.invoke(allPhotos)?.collect { result ->
+                                val allCollections = result.appCollections + result.visualCollections
+                                val matched = allCollections.firstOrNull { it.id == collectionId }
+                                val photos = matched?.photos ?: allPhotos
+                                updateDisplayPhotos(photos)
+                            }
+                        }
+                    }
+                    else -> {
+                        getPhotosUseCase().collect { updateDisplayPhotos(it) }
+                    }
                 }
-
-                if (displayPhotos.isEmpty()) {
-                    _uiState.update { it.copy(isLoading = false, photos = emptyList()) }
-                    return@collect
+            } else if (!albumName.isNullOrEmpty()) {
+                getPhotosUseCase().collect { allPhotos ->
+                    val filtered = allPhotos.filter { it.folderName == albumName }
+                    updateDisplayPhotos(filtered)
                 }
-
-                val index = displayPhotos.indexOfFirst { it.id == initialPhotoId }.coerceAtLeast(0)
-
-                _uiState.update {
-                    it.copy(
-                        photos = displayPhotos,
-                        initialIndex = index,
-                        isLoading = false
-                    )
+            } else {
+                getPhotosUseCase().collect { allPhotos ->
+                    updateDisplayPhotos(allPhotos)
                 }
             }
+        }
+    }
+
+    private fun updateDisplayPhotos(displayPhotos: List<Photo>) {
+        if (displayPhotos.isEmpty()) {
+            _uiState.update { it.copy(isLoading = false, photos = emptyList()) }
+            return
+        }
+        val index = displayPhotos.indexOfFirst { it.id == initialPhotoId }.coerceAtLeast(0)
+        _uiState.update {
+            it.copy(
+                photos = displayPhotos,
+                initialIndex = index,
+                isLoading = false
+            )
         }
     }
 }
