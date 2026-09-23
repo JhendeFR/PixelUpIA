@@ -30,6 +30,7 @@ fun MultimodalDetailsBottomSheet(
     onTriggerEnrichment: () -> Unit,
     onAddTag: (String) -> Unit = {},
     onRemoveTag: (String) -> Unit = {},
+    onViewFaceBoundingBox: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -151,26 +152,137 @@ fun MultimodalDetailsBottomSheet(
                             color = MaterialTheme.colorScheme.surfaceContainer,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = if (metadata?.hasFaces == true) Icons.Default.Face else Icons.Default.FaceRetouchingOff,
-                                    contentDescription = null,
-                                    tint = if (metadata?.hasFaces == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = if (metadata?.hasFaces == true) "Rostro detectado en la imagen" else "No se detectaron rostros",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (metadata?.hasFaces == true) Icons.Default.Face else Icons.Default.FaceRetouchingOff,
+                                        contentDescription = null,
+                                        tint = if (metadata?.hasFaces == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = if (metadata?.hasFaces == true) "Rostro detectado en la imagen" else "No se detectaron rostros",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+
+                                if (metadata?.hasFaces == true && onViewFaceBoundingBox != null) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            onDismiss()
+                                            onViewFaceBoundingBox()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CropFree,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Ver encuadre del rostro analizado")
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
-                // 2. Escenas y Etiquetas Visuales con Porcentaje de Precisión (Image Labeler)
+                // 2. Comprensión Semántica MobileCLIP-S0 (Dual-Encoder Visión y Texto)
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Comprensión Semántica MobileCLIP-S0",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (metadata?.hasSemanticEmbedding == true) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Text(
+                                        text = "512D Activo",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = "Espacio latente continuo para búsqueda libre de lenguaje natural",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = if (metadata?.hasSemanticEmbedding == true) Icons.Default.Hub else Icons.Default.HourglassEmpty,
+                                        contentDescription = null,
+                                        tint = if (metadata?.hasSemanticEmbedding == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (metadata?.hasSemanticEmbedding == true) {
+                                            "Vector latente de 512 floats generado y normalizado L2"
+                                        } else {
+                                            "Sin vector semántico calculado"
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+
+                                if (!metadata?.clipTopPredictions.isNullOrEmpty()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Afinidad Semántica Zero-Shot detectada:",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        metadata?.clipTopPredictions?.forEach { (concept, score) ->
+                                            val pct = (score * 100).toInt()
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.surfaceContainerHigh
+                                            ) {
+                                                Text(
+                                                    text = "$concept $pct%",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Escenas y Etiquetas Visuales con Porcentaje de Precisión (Image Labeler)
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(

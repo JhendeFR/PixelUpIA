@@ -27,4 +27,27 @@ class Converters {
         }
         return result
     }
+
+    @TypeConverter
+    fun fromLongList(list: List<Long>?): String {
+        if (list.isNullOrEmpty()) return "[]"
+        val jsonArray = JSONArray()
+        list.forEach { jsonArray.put(it) }
+        return jsonArray.toString()
+    }
+
+    @TypeConverter
+    fun toLongList(json: String?): List<Long> {
+        if (json.isNullOrBlank() || json == "[]") return emptyList()
+        val result = mutableListOf<Long>()
+        try {
+            val jsonArray = JSONArray(json)
+            for (i in 0 until jsonArray.length()) {
+                result.add(jsonArray.getLong(i))
+            }
+        } catch (e: Exception) {
+            return json.split(",").mapNotNull { it.trim().toLongOrNull() }
+        }
+        return result
+    }
 }

@@ -46,6 +46,8 @@ class MultimodalEnrichmentWorker(
             smartGalleryDao = dao
         )
 
+        val mobileClipDataSource = com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource(applicationContext)
+
         val enrichUseCase = EnrichScreenshotUseCase(
             barcodeDataSource = barcodeDataSource,
             faceDetectionDataSource = faceDetectionDataSource,
@@ -55,7 +57,8 @@ class MultimodalEnrichmentWorker(
             textRecognitionDataSource = textRecognitionDataSource,
             context = applicationContext,
             faceClusteringService = faceClusteringService,
-            objectDetectionDataSource = objectDetectionDataSource
+            objectDetectionDataSource = objectDetectionDataSource,
+            mobileClipDataSource = mobileClipDataSource
         )
 
         for (photoEntity in unenrichedScreenshots) {

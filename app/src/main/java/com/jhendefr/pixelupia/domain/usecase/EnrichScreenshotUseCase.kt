@@ -24,7 +24,8 @@ class EnrichScreenshotUseCase(
     private val textRecognitionDataSource: TextRecognitionDataSource,
     private val context: android.content.Context? = null,
     private val faceClusteringService: com.jhendefr.pixelupia.data.ml.FaceClusteringService? = null,
-    private val objectDetectionDataSource: com.jhendefr.pixelupia.data.ml.ObjectDetectionDataSource? = null
+    private val objectDetectionDataSource: com.jhendefr.pixelupia.data.ml.ObjectDetectionDataSource? = null,
+    private val mobileClipDataSource: com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource? = null
 ) {
     suspend operator fun invoke(photo: Photo): Result<MultimodalMetadata> = withContext(Dispatchers.IO) {
         try {
@@ -76,20 +77,6 @@ class EnrichScreenshotUseCase(
             val entityItems = entitiesDeferred.await()
             val objectsResult = objectsDeferred?.await()
 
-            val hasFaces = facesDetailed.faces.isNotEmpty()
-            val formattedLabels = labelItems.map { it.formatted }
-            val formattedEntities = entityItems.map { "${it.text} (${it.type})" }
-
-            val multimodalResult = MultimodalMetadata(
-                photoId = photo.id,
-                hasFaces = hasFaces,
-                barcodes = barcodes,
-                labels = formattedLabels,
-                entities = formattedEntities,
-                isEnriched = true
-            )
-
-            // Deteccion de Mascotas y eliminacion estricta de falsos positivos en documentos/facturas
             val ocrBlockCount = existingEntity?.boundingBoxes?.let { json ->
                 Regex("""\{"text":""").findAll(json).count()
             } ?: 0
@@ -112,8 +99,48 @@ class EnrichScreenshotUseCase(
                     photo.name.contains("screenshot", ignoreCase = true) ||
                     photo.sourceApp != null
 
+            // Limpieza estricta de etiquetas: respetar excludedTags del usuario y resolver falsos positivos
+            val excludedTagsSet = existingEntity?.excludedTags?.map { it.lowercase(java.util.Locale.ROOT).trim() }?.toSet() ?: emptySet()
+
+            val hasHighConfidenceFood = labelItems.any { item ->
+                val l = item.text.lowercase(java.util.Locale.ROOT)
+                (l.contains("comida") || l.contains("alimento") || l.contains("plato") || l.contains("postre")) && item.confidence >= 0.70f
+            }
+
+            val filteredLabelItems = labelItems.filter { item ->
+                val lower = item.text.lowercase(java.util.Locale.ROOT)
+                val baseText = lower.substringBefore(" - ").trim()
+
+                // 1. Respetar exclusiones explicitas del usuario
+                if (excludedTagsSet.contains(baseText) || excludedTagsSet.any { lower.contains(it) }) {
+                    return@filter false
+                }
+
+                // 2. En documentos o facturas, eliminar categoricamente mascotas, animales, comida y flores
+                if (isDocumentOrInvoice) {
+                    val isAnimalOrPet = lower.contains("perro") || lower.contains("gato") || lower.contains("mascota") ||
+                            lower.contains("animal") || lower.contains("fauna") || lower.contains("cachorro")
+                    val isFood = lower.contains("comida") || lower.contains("alimento") || lower.contains("plato")
+                    val isFlora = lower.contains("flor") || lower.contains("flower") || lower.contains("planta")
+                    if (isAnimalOrPet || isFood || isFlora) {
+                        return@filter false
+                    }
+                }
+
+                // 3. En fotos de comida, suprimir flores si la confianza es < 0.85f (guarniciones/platos gourmet)
+                if (hasHighConfidenceFood && (lower.contains("flor") || lower.contains("planta")) && item.confidence < 0.85f) {
+                    return@filter false
+                }
+
+                true
+            }
+
+            val hasFaces = facesDetailed.faces.isNotEmpty()
+            val formattedLabels = filteredLabelItems.map { it.formatted }
+            val formattedEntities = entityItems.map { "${it.text} (${it.type})" }
+
             val isPetLabelDetected = !isDocumentOrInvoice && !isScreenshot && (
-                labelItems.any { labelItem ->
+                filteredLabelItems.any { labelItem ->
                     val lower = labelItem.text.lowercase(java.util.Locale.ROOT)
                     lower.contains("perro") || lower.contains("gato") || lower.contains("mascota") ||
                             lower.contains("canino") || lower.contains("felino") || lower.contains("cachorro") ||
@@ -145,6 +172,25 @@ class EnrichScreenshotUseCase(
                         photo.name.contains("animal", ignoreCase = true)
                     )
                 )
+            )
+
+            // Si se detecta mascota, limpiar posibles etiquetas residuales de insectos/artropodos
+            val cleanedFinalLabels = if (isPetLabelDetected) {
+                formattedLabels.filterNot { fl ->
+                    val l = fl.lowercase(java.util.Locale.ROOT)
+                    l.contains("insecto") || l.contains("artropodo") || l.contains("invertebrado")
+                }
+            } else {
+                formattedLabels
+            }
+
+            val multimodalResult = MultimodalMetadata(
+                photoId = photo.id,
+                hasFaces = hasFaces,
+                barcodes = barcodes,
+                labels = cleanedFinalLabels,
+                entities = formattedEntities,
+                isEnriched = true
             )
 
             // Deteccion robusta de mascotas: objetos identificados o encuadre central si la foto es de un animal
@@ -185,50 +231,79 @@ class EnrichScreenshotUseCase(
             // Las capturas de pantalla NO deben asociarse a grupos de personas
             val faceCandidates = if (isScreenshot) emptyList() else facesDetailed.faces
 
+            val colorPairs = mutableListOf<String>()
+            val expandedColorPairs = mutableListOf<String>()
+
+            val needsBitmap = context != null && (
+                faceCandidates.isNotEmpty() || petBoxes.isNotEmpty() || (objectsResult != null && objectsResult.objects.isNotEmpty()) || mobileClipDataSource != null
+            )
+
+            val loadedBitmap = if (needsBitmap) {
+                com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(context!!, photo.uri)
+            } else null
+
+            // Extraccion de Embedding Semantico con MobileCLIP-S0 (Vision)
+            val clipZeroShotLabels = mutableListOf<String>()
+            val semanticEmbeddingBase64 = if (loadedBitmap != null && mobileClipDataSource != null) {
+                val embResult = mobileClipDataSource.extractImageEmbedding(loadedBitmap)
+                if (embResult.isFailure) {
+                    android.util.Log.e("MobileCLIP", "Fallo al generar embedding para ${photo.name}: ${embResult.exceptionOrNull()?.message}")
+                }
+                val rawEmb = embResult.getOrNull()
+                if (rawEmb != null) {
+                    val predictions = mobileClipDataSource.predictZeroShotLabels(rawEmb, topK = 3, threshold = 0.16f)
+                    for ((label, score) in predictions) {
+                        val pct = (score * 100).toInt()
+                        clipZeroShotLabels.add("$label - $pct%")
+                    }
+                    com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource.embeddingToBase64(rawEmb)
+                } else null
+            } else {
+                android.util.Log.w("MobileCLIP", "No se genero embedding para ${photo.name}: loadedBitmap=${loadedBitmap != null}, dataSource=${mobileClipDataSource != null}")
+                null
+            }
+
             // Agrupamiento de Rostros y Mascotas con FaceClusteringService
-            if (faceClusteringService != null && context != null) {
+            if (faceClusteringService != null && loadedBitmap != null) {
                 try {
                     if (faceCandidates.isNotEmpty() || petBoxes.isNotEmpty()) {
-                        val bitmap = com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(context, photo.uri)
-                        if (bitmap != null) {
-                            val imgW = if (facesDetailed.imageWidth > 0) facesDetailed.imageWidth else bitmap.width
-                            val imgH = if (facesDetailed.imageHeight > 0) facesDetailed.imageHeight else bitmap.height
+                        val imgW = if (facesDetailed.imageWidth > 0) facesDetailed.imageWidth else loadedBitmap.width
+                        val imgH = if (facesDetailed.imageHeight > 0) facesDetailed.imageHeight else loadedBitmap.height
 
-                            val scaleX = bitmap.width.toFloat() / imgW.toFloat()
-                            val scaleY = bitmap.height.toFloat() / imgH.toFloat()
+                        val scaleX = loadedBitmap.width.toFloat() / imgW.toFloat()
+                        val scaleY = loadedBitmap.height.toFloat() / imgH.toFloat()
 
-                            val scaledFaces = faceCandidates.map { face ->
-                                val scaledBox = android.graphics.Rect(
-                                    (face.box.left * scaleX).toInt().coerceIn(0, bitmap.width),
-                                    (face.box.top * scaleY).toInt().coerceIn(0, bitmap.height),
-                                    (face.box.right * scaleX).toInt().coerceIn(0, bitmap.width),
-                                    (face.box.bottom * scaleY).toInt().coerceIn(0, bitmap.height)
-                                )
-                                val scaledLeftEye = face.leftEye?.let {
-                                    android.graphics.PointF(it.x * scaleX, it.y * scaleY)
-                                }
-                                val scaledRightEye = face.rightEye?.let {
-                                    android.graphics.PointF(it.x * scaleX, it.y * scaleY)
-                                }
-                                face.copy(box = scaledBox, leftEye = scaledLeftEye, rightEye = scaledRightEye)
+                        val scaledFaces = faceCandidates.map { face ->
+                            val scaledBox = android.graphics.Rect(
+                                (face.box.left * scaleX).toInt().coerceIn(0, loadedBitmap.width),
+                                (face.box.top * scaleY).toInt().coerceIn(0, loadedBitmap.height),
+                                (face.box.right * scaleX).toInt().coerceIn(0, loadedBitmap.width),
+                                (face.box.bottom * scaleY).toInt().coerceIn(0, loadedBitmap.height)
+                            )
+                            val scaledLeftEye = face.leftEye?.let {
+                                android.graphics.PointF(it.x * scaleX, it.y * scaleY)
                             }
-
-                            val scaledPetBoxes = petBoxes.map { box ->
-                                android.graphics.Rect(
-                                    (box.left * scaleX).toInt().coerceIn(0, bitmap.width),
-                                    (box.top * scaleY).toInt().coerceIn(0, bitmap.height),
-                                    (box.right * scaleX).toInt().coerceIn(0, bitmap.width),
-                                    (box.bottom * scaleY).toInt().coerceIn(0, bitmap.height)
-                                )
+                            val scaledRightEye = face.rightEye?.let {
+                                android.graphics.PointF(it.x * scaleX, it.y * scaleY)
                             }
+                            face.copy(box = scaledBox, leftEye = scaledLeftEye, rightEye = scaledRightEye)
+                        }
 
-                            faceClusteringService.clusterPhotoFacesAndPets(
-                                photo = photo,
-                                bitmap = bitmap,
-                                detectedFaces = scaledFaces,
-                                petBoundingBoxes = scaledPetBoxes
+                        val scaledPetBoxes = petBoxes.map { box ->
+                            android.graphics.Rect(
+                                (box.left * scaleX).toInt().coerceIn(0, loadedBitmap.width),
+                                (box.top * scaleY).toInt().coerceIn(0, loadedBitmap.height),
+                                (box.right * scaleX).toInt().coerceIn(0, loadedBitmap.width),
+                                (box.bottom * scaleY).toInt().coerceIn(0, loadedBitmap.height)
                             )
                         }
+
+                        faceClusteringService.clusterPhotoFacesAndPets(
+                            photo = photo,
+                            bitmap = loadedBitmap,
+                            detectedFaces = scaledFaces,
+                            petBoundingBoxes = scaledPetBoxes
+                        )
                     }
                 } catch (_: Exception) {
                     // Continuar si ocurre error al clusterizar imagen individual
@@ -236,7 +311,8 @@ class EnrichScreenshotUseCase(
             }
 
             // Construir indice concatenado enriquecido con expansion de sinonimos para busqueda FTS5
-            val cleanLabels = multimodalResult.labels.map {
+            val allLabels = (multimodalResult.labels + colorPairs + clipZeroShotLabels).distinct()
+            val cleanLabels = allLabels.map {
                 if (it.contains(" - ")) it.substringBeforeLast(" - ") else it
             }
             val expandedLabelsContent = cleanLabels.joinToString(" ") { label ->
@@ -250,6 +326,10 @@ class EnrichScreenshotUseCase(
             val petTerms = if (isPetDetected) {
                 com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("perro") + " " +
                 com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("gato") + " mascota animal"
+            } else ""
+
+            val colorTerms = if (expandedColorPairs.isNotEmpty()) {
+                expandedColorPairs.distinct().joinToString(" ")
             } else ""
 
             val sourceAppTerm = existingEntity?.sourceApp ?: photo.sourceApp ?: ""
@@ -282,23 +362,27 @@ class EnrichScreenshotUseCase(
                 if (faceTerms.isNotBlank()) append(" $faceTerms")
                 if (petTerms.isNotBlank()) append(" $petTerms")
                 if (expandedLabelsContent.isNotBlank()) append(" $expandedLabelsContent")
+                if (colorTerms.isNotBlank()) append(" $colorTerms")
                 if (barcodeTerms.isNotBlank()) append(" $barcodeTerms")
                 if (entityTerms.isNotBlank()) append(" $entityTerms")
                 if (paymentTerms.isNotBlank()) append(" $paymentTerms")
                 if (documentTerms.isNotBlank()) append(" $documentTerms")
             }.trim()
 
+            val finalMultimodalResult = multimodalResult.copy(labels = allLabels)
+
             // Actualizar Room con los metadatos generados y sincronizar FTS5
             smartGalleryDao.updateEnrichment(
                 photoId = photo.id,
-                hasFaces = multimodalResult.hasFaces,
-                barcodes = multimodalResult.barcodes,
-                labels = multimodalResult.labels,
-                entities = multimodalResult.entities,
-                searchContent = concatenatedSearchContent
+                hasFaces = finalMultimodalResult.hasFaces,
+                barcodes = finalMultimodalResult.barcodes,
+                labels = finalMultimodalResult.labels,
+                entities = finalMultimodalResult.entities,
+                searchContent = concatenatedSearchContent,
+                semanticEmbedding = semanticEmbeddingBase64
             )
 
-            Result.success(multimodalResult)
+            Result.success(finalMultimodalResult)
         } catch (e: Exception) {
             Result.failure(e)
         }

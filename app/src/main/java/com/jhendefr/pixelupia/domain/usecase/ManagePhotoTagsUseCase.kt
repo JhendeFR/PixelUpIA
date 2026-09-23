@@ -18,13 +18,15 @@ class ManagePhotoTagsUseCase(
             if (trimmedTag.isBlank()) return@withContext Result.success(entity.labels)
 
             val updatedLabels = (entity.labels + trimmedTag).distinct()
+            val updatedExclusions = entity.excludedTags.filterNot { it.equals(trimmedTag, ignoreCase = true) }
             val expandedSynonyms = SynonymRegistry.expandForSearchContent(trimmedTag)
             val updatedSearchContent = "${entity.searchContent} $expandedSynonyms".trim()
 
-            smartGalleryDao.updatePhotoLabelsAndSearch(
+            smartGalleryDao.updatePhotoTagsAndExclusions(
                 photoId = photoId,
                 labels = updatedLabels,
-                searchContent = updatedSearchContent
+                searchContent = updatedSearchContent,
+                excludedTags = updatedExclusions
             )
             Result.success(updatedLabels)
         } catch (e: Exception) {
@@ -42,6 +44,7 @@ class ManagePhotoTagsUseCase(
                 it.equals(trimmedTag, ignoreCase = true) ||
                 it.substringBeforeLast(" - ").equals(trimmedTag, ignoreCase = true)
             }
+            val updatedExclusions = (entity.excludedTags + trimmedTag).distinct()
 
             // Reconstruir searchContent eliminando el termino y sus sinonimos
             val synonymsToRemove = SynonymRegistry.getSynonyms(trimmedTag) + listOf(trimmedTag)
@@ -51,11 +54,21 @@ class ManagePhotoTagsUseCase(
             }
             newSearchContent = newSearchContent.replace(Regex("\\s+"), " ").trim()
 
-            smartGalleryDao.updatePhotoLabelsAndSearch(
+            smartGalleryDao.updatePhotoTagsAndExclusions(
                 photoId = photoId,
                 labels = updatedLabels,
-                searchContent = newSearchContent
+                searchContent = newSearchContent,
+                excludedTags = updatedExclusions
             )
+
+            // Si se quito etiqueta de mascota, remover de clusters de mascotas
+            val lowerTag = trimmedTag.lowercase(java.util.Locale.ROOT)
+            val isPetTag = lowerTag.contains("perro") || lowerTag.contains("gato") || lowerTag.contains("mascota") ||
+                    lowerTag.contains("dog") || lowerTag.contains("cat") || lowerTag.contains("pet")
+            if (isPetTag) {
+                smartGalleryDao.excludePhotoFromAllPetClusters(photoId)
+            }
+
             Result.success(updatedLabels)
         } catch (e: Exception) {
             Result.failure(e)

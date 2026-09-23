@@ -20,7 +20,7 @@ class EnrichFolderScreenshotsUseCase(
         } else {
             photos.filter { photo ->
                 val entity = smartGalleryDao.getPhotoById(photo.id)
-                entity == null || !entity.isEnriched
+                entity == null || !entity.isEnriched || entity.semanticEmbedding.isNullOrBlank()
             }
         }
 

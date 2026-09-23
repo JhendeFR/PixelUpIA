@@ -148,18 +148,42 @@ class GetSmartCollectionsUseCase(
                     }
 
                     // Categorias extraidas de las etiquetas de ML Kit
+                    val isDocOrPaymentPhoto = hasPaymentEntities || hasPaymentLabel || hasPaymentText || hasDocumentLabel || hasDocumentText
+                    val excludedLowerSet = entity.excludedTags.map { it.lowercase(Locale.ROOT).trim() }.toSet()
+
                     for (rawLabel in entity.labels) {
                         val labelName = rawLabel.substringBefore(" - ").trim()
-                        if (labelName.isNotBlank() &&
-                            !labelName.equals("Objeto", ignoreCase = true) &&
-                            !labelName.equals("Objeto detectado", ignoreCase = true) &&
-                            !labelName.equals("Persona", ignoreCase = true) &&
-                            !labelName.equals("Personas", ignoreCase = true) &&
-                            !labelName.equals("Recibo", ignoreCase = true) &&
-                            !labelName.equals("Dinero", ignoreCase = true) &&
-                            !labelName.equals("Papel", ignoreCase = true) &&
-                            !labelName.equals("Pasaporte", ignoreCase = true)
-                        ) {
+                        val lower = labelName.lowercase(Locale.ROOT)
+
+                        // 1. Respetar exclusiones explicitas del usuario
+                        if (excludedLowerSet.contains(lower) || excludedLowerSet.any { lower.contains(it) }) {
+                            continue
+                        }
+
+                        // 2. Si la foto es documento/pago, no permitir categorias de mascotas o comida
+                        if (isDocOrPaymentPhoto) {
+                            val isAnimal = lower.contains("perro") || lower.contains("gato") || lower.contains("mascota") || lower.contains("animal")
+                            val isFood = lower.contains("comida") || lower.contains("alimento")
+                            if (isAnimal || isFood) continue
+                        }
+
+                        // 3. Excluir categorias no deseadas o con alta tasa de falsos positivos
+                        val isNoisyCategory = lower == "objeto" ||
+                                lower == "objeto detectado" ||
+                                lower == "persona" ||
+                                lower == "personas" ||
+                                lower == "recibo" ||
+                                lower == "dinero" ||
+                                lower == "papel" ||
+                                lower == "pasaporte" ||
+                                lower.contains("insect") ||
+                                lower.contains("artropod") ||
+                                lower.contains("invertebrad") ||
+                                lower.contains("escarabajo") ||
+                                lower.contains("arana") ||
+                                lower.contains("plaga")
+
+                        if (labelName.isNotBlank() && !isNoisyCategory) {
                             val categoryTitle = pluralizeCategory(labelName)
                             val list = visualCategoryMap.getOrOrPut(categoryTitle) { mutableListOf() }
                             if (list.none { it.id == photo.id }) {

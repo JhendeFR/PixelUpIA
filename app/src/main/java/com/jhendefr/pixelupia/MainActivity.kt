@@ -59,7 +59,8 @@ class MainActivity : ComponentActivity() {
         val repository = MediaRepositoryImpl(applicationContext, mediaStoreDataSource)
 
         val snapVaultDb = SnapVaultDatabase.getInstance(applicationContext)
-        val smartPhotoRepository = SmartPhotoRepositoryImpl(snapVaultDb.smartGalleryDao())
+        val mobileClipDataSource = com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource(applicationContext)
+        val smartPhotoRepository = SmartPhotoRepositoryImpl(snapVaultDb.smartGalleryDao(), mobileClipDataSource)
         val textRecognitionDataSource = TextRecognitionDataSource(applicationContext)
 
         // ML Kit Multimodal Data Sources
@@ -106,20 +107,26 @@ class MainActivity : ComponentActivity() {
             textRecognitionDataSource = textRecognitionDataSource,
             context = applicationContext,
             faceClusteringService = faceClusteringService,
-            objectDetectionDataSource = objectDetectionDataSource
+            objectDetectionDataSource = objectDetectionDataSource,
+            mobileClipDataSource = mobileClipDataSource
         )
         val enrichFolderScreenshotsUseCase = EnrichFolderScreenshotsUseCase(
             enrichScreenshotUseCase = enrichScreenshotUseCase,
             smartGalleryDao = snapVaultDb.smartGalleryDao()
         )
         val getPhotoMultimodalMetadataUseCase = GetPhotoMultimodalMetadataUseCase(
-            smartGalleryDao = snapVaultDb.smartGalleryDao()
+            smartGalleryDao = snapVaultDb.smartGalleryDao(),
+            mobileClipDataSource = mobileClipDataSource
         )
         val getSmartCollectionsUseCase = com.jhendefr.pixelupia.domain.usecase.GetSmartCollectionsUseCase(
             smartGalleryDao = snapVaultDb.smartGalleryDao()
         )
         val smartGalleryPreferencesDataSource = com.jhendefr.pixelupia.data.local.SmartGalleryPreferencesDataSource(applicationContext)
         val unindexPhotoUseCase = UnindexPhotoUseCase(smartPhotoRepository)
+        val generateSmartMemoriesUseCase = com.jhendefr.pixelupia.domain.usecase.GenerateSmartMemoriesUseCase(
+            smartGalleryDao = snapVaultDb.smartGalleryDao(),
+            mobileClipDataSource = mobileClipDataSource
+        )
 
         // Programar enriquecimiento multimodal periodico con WorkManager
         WorkManagerScheduler.schedulePeriodicEnrichment(applicationContext)
@@ -146,7 +153,9 @@ class MainActivity : ComponentActivity() {
                     getFaceClustersUseCase = getFaceClustersUseCase,
                     manageFaceClusterUseCase = manageFaceClusterUseCase,
                     getPhotosForClusterUseCase = getPhotosForClusterUseCase,
-                    context = applicationContext
+                    context = applicationContext,
+                    smartGalleryDao = snapVaultDb.smartGalleryDao(),
+                    generateSmartMemoriesUseCase = generateSmartMemoriesUseCase
                 ) as T
             }
         }

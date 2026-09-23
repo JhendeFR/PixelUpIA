@@ -55,7 +55,20 @@ data class GalleryUiState(
     val showFolderPickerForMove: Boolean = false,
     val showFolderPickerForCopy: Boolean = false,
     val isProcessingAction: Boolean = false,
-    val pendingIntentSender: IntentSender? = null
+    val pendingIntentSender: IntentSender? = null,
+    val memoryStories: List<com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity> = emptyList(),
+    val activeStory: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity? = null,
+    val activeStoryPhotos: List<com.jhendefr.pixelupia.data.local.room.SmartPhotoEntity> = emptyList(),
+    val storyToEditName: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity? = null,
+    val storyToAddPhotos: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity? = null,
+    val storyToManagePhotos: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity? = null,
+    val showCreateManualStoryDialog: Boolean = false,
+    val showMomentsCollageView: Boolean = false,
+    val suggestedMemories: List<com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity> = emptyList(),
+    val showCustomizeFilterChipsDialog: Boolean = false,
+    val activeFilterChips: List<String> = listOf("Lugares", "Documentos", "Ropa", "Eventos", "Pagos", "Mascotas", "Codigos QR"),
+    val semanticPhotos: List<com.jhendefr.pixelupia.data.local.room.SmartPhotoEntity> = emptyList(),
+    val showSemanticPhotosDialog: Boolean = false
 ) {
     val isSelectionMode: Boolean get() = selectedPhotoIds.isNotEmpty()
     val selectedPhotos: List<Photo> get() = photos.filter { selectedPhotoIds.contains(it.id) }
@@ -120,4 +133,26 @@ sealed interface GalleryEvent {
     object OnIntentSenderCompleted : GalleryEvent
     object OnIntentSenderDismissed : GalleryEvent
     object ClearUserMessage : GalleryEvent
+
+    // Recuerdos Inteligentes (Smart Moments)
+    data class OpenStory(val story: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) : GalleryEvent
+    object CloseStory : GalleryEvent
+    object GenerateMemories : GalleryEvent
+    data class OpenEditStoryName(val story: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity?) : GalleryEvent
+    data class RenameStory(val storyId: Long, val newTitle: String) : GalleryEvent
+    data class OpenAddPhotosToStory(val story: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity?) : GalleryEvent
+    data class AddPhotosToStory(val storyId: Long, val newPhotoIds: List<Long>) : GalleryEvent
+    data class OpenManageStoryPhotos(val story: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity?) : GalleryEvent
+    data class RemovePhotoFromStory(val storyId: Long, val photoId: Long) : GalleryEvent
+    data class ToggleStoryPinned(val storyId: Long, val isPinned: Boolean) : GalleryEvent
+    data class DeleteStory(val storyId: Long) : GalleryEvent
+    data class ToggleCreateManualStoryDialog(val show: Boolean) : GalleryEvent
+    data class CreateManualStory(val title: String, val photoIds: List<Long>) : GalleryEvent
+    data class CreateStoryFromSuggestion(val suggestion: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) : GalleryEvent
+    object LoadSuggestedMemories : GalleryEvent
+    data class ToggleMomentsCollageView(val show: Boolean) : GalleryEvent
+    data class ToggleCustomizeFilterChipsDialog(val show: Boolean) : GalleryEvent
+    data class SaveActiveFilterChips(val chips: List<String>) : GalleryEvent
+    object ResetFilterChipsToDefault : GalleryEvent
+    data class ToggleSemanticPhotosDialog(val show: Boolean) : GalleryEvent
 }

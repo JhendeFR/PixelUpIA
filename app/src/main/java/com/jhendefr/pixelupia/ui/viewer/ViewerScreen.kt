@@ -216,6 +216,9 @@ fun ViewerScreen(
             onRemoveTag = { tag ->
                 viewModel.onEvent(ViewerEvent.RemoveTag(currentPhoto.id, tag))
             },
+            onViewFaceBoundingBox = {
+                viewModel.onEvent(ViewerEvent.TriggerFaceDetection(currentPhoto.uri))
+            },
             onDismiss = {
                 viewModel.onEvent(ViewerEvent.DismissMultimodalDetailsSheet)
             }

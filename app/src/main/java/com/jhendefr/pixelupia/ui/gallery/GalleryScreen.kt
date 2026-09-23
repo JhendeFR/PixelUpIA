@@ -154,6 +154,85 @@ fun GalleryScreen(
         )
     }
 
+    // Visor de Historias / Recuerdos Inteligentes a Pantalla Completa
+    val currentActiveStory = uiState.activeStory
+    if (currentActiveStory != null && uiState.activeStoryPhotos.isNotEmpty()) {
+        com.jhendefr.pixelupia.ui.gallery.components.StoryViewerDialog(
+            story = currentActiveStory,
+            photos = uiState.activeStoryPhotos,
+            onDismiss = { viewModel.onEvent(GalleryEvent.CloseStory) },
+            onEditName = { viewModel.onEvent(GalleryEvent.OpenEditStoryName(it)) },
+            onAddPhotos = { viewModel.onEvent(GalleryEvent.OpenAddPhotosToStory(it)) },
+            onRemoveCurrentPhoto = { story, photoId -> viewModel.onEvent(GalleryEvent.RemovePhotoFromStory(story.storyId, photoId)) },
+            onTogglePin = { viewModel.onEvent(GalleryEvent.ToggleStoryPinned(it.storyId, !it.isPinned)) },
+            onDeleteStory = { viewModel.onEvent(GalleryEvent.DeleteStory(it.storyId)) }
+        )
+    }
+
+    // Dialogos de Gestion de Recuerdos
+    val storyToEdit = uiState.storyToEditName
+    if (storyToEdit != null) {
+        com.jhendefr.pixelupia.ui.gallery.components.EditStoryNameDialog(
+            story = storyToEdit,
+            onConfirm = { newTitle -> viewModel.onEvent(GalleryEvent.RenameStory(storyToEdit.storyId, newTitle)) },
+            onDismiss = { viewModel.onEvent(GalleryEvent.OpenEditStoryName(null)) }
+        )
+    }
+
+    val storyToAdd = uiState.storyToAddPhotos
+    if (storyToAdd != null) {
+        com.jhendefr.pixelupia.ui.gallery.components.AddPhotosToStoryDialog(
+            story = storyToAdd,
+            allPhotos = uiState.photos,
+            onAddPhotos = { ids -> viewModel.onEvent(GalleryEvent.AddPhotosToStory(storyToAdd.storyId, ids)) },
+            onDismiss = { viewModel.onEvent(GalleryEvent.OpenAddPhotosToStory(null)) }
+        )
+    }
+
+    val storyToManage = uiState.storyToManagePhotos
+    if (storyToManage != null) {
+        com.jhendefr.pixelupia.ui.gallery.components.ManageStoryPhotosDialog(
+            story = storyToManage,
+            allPhotos = uiState.photos,
+            onRemovePhoto = { photoId -> viewModel.onEvent(GalleryEvent.RemovePhotoFromStory(storyToManage.storyId, photoId)) },
+            onDismiss = { viewModel.onEvent(GalleryEvent.OpenManageStoryPhotos(null)) }
+        )
+    }
+
+    if (uiState.showCreateManualStoryDialog) {
+        com.jhendefr.pixelupia.ui.gallery.components.CreateManualStoryDialog(
+            allPhotos = uiState.photos,
+            suggestedMemories = uiState.suggestedMemories,
+            onCreateSuggestion = { suggestion -> viewModel.onEvent(GalleryEvent.CreateStoryFromSuggestion(suggestion)) },
+            onCreate = { title, ids -> viewModel.onEvent(GalleryEvent.CreateManualStory(title, ids)) },
+            onDismiss = { viewModel.onEvent(GalleryEvent.ToggleCreateManualStoryDialog(false)) }
+        )
+    }
+
+    if (uiState.showCustomizeFilterChipsDialog) {
+        val allDetectedCategories = uiState.visualCollections.map { it.title }.distinct()
+        com.jhendefr.pixelupia.ui.gallery.components.CustomizeFilterChipsDialog(
+            activeChips = uiState.activeFilterChips,
+            availableSuggestions = allDetectedCategories,
+            onSave = { chips -> viewModel.onEvent(GalleryEvent.SaveActiveFilterChips(chips)) },
+            onResetToDefault = { viewModel.onEvent(GalleryEvent.ResetFilterChipsToDefault) },
+            onDismiss = { viewModel.onEvent(GalleryEvent.ToggleCustomizeFilterChipsDialog(false)) }
+        )
+    }
+
+    if (uiState.showSemanticPhotosDialog) {
+        com.jhendefr.pixelupia.ui.gallery.components.SemanticVectorPhotosDialog(
+            photos = uiState.semanticPhotos,
+            onPhotoClick = { smartPhoto ->
+                val matchingPhoto = uiState.photos.firstOrNull { it.id == smartPhoto.photoId }
+                if (matchingPhoto != null) {
+                    onPhotoClick(matchingPhoto, true, null)
+                }
+            },
+            onDismiss = { viewModel.onEvent(GalleryEvent.ToggleSemanticPhotosDialog(false)) }
+        )
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -374,6 +453,17 @@ fun GalleryScreen(
                                 selectedIds = uiState.selectedPhotoIds,
                                 isSelectionMode = uiState.isSelectionMode,
                                 faceClusters = uiState.faceClusters,
+                                memoryStories = uiState.memoryStories,
+                                onStoryClick = { viewModel.onEvent(GalleryEvent.OpenStory(it)) },
+                                onEditStoryName = { viewModel.onEvent(GalleryEvent.OpenEditStoryName(it)) },
+                                onAddPhotosToStory = { viewModel.onEvent(GalleryEvent.OpenAddPhotosToStory(it)) },
+                                onManageStoryPhotos = { viewModel.onEvent(GalleryEvent.OpenManageStoryPhotos(it)) },
+                                onToggleStoryPin = { viewModel.onEvent(GalleryEvent.ToggleStoryPinned(it.storyId, !it.isPinned)) },
+                                onDeleteStory = { viewModel.onEvent(GalleryEvent.DeleteStory(it.storyId)) },
+                                onCreateManualStory = { viewModel.onEvent(GalleryEvent.ToggleCreateManualStoryDialog(true)) },
+                                onOpenCollageView = { viewModel.onEvent(GalleryEvent.ToggleMomentsCollageView(true)) },
+                                showMomentsCollageView = uiState.showMomentsCollageView,
+                                onCloseCollageView = { viewModel.onEvent(GalleryEvent.ToggleMomentsCollageView(false)) },
                                 selectedFaceCluster = uiState.selectedFaceCluster,
                                 selectedFaceClusterPhotos = uiState.selectedFaceClusterPhotos,
                                 showAddPhotosToClusterDialog = uiState.showAddPhotosToClusterDialog,
@@ -391,7 +481,9 @@ fun GalleryScreen(
                                 onRemovePhotoFromFaceCluster = { clusterId, photoId -> viewModel.onEvent(GalleryEvent.RemovePhotoFromFaceCluster(clusterId, photoId)) },
                                 smartCollages = uiState.smartCollages,
                                 selectedFilterType = uiState.selectedFilterType,
+                                activeFilterChips = uiState.activeFilterChips,
                                 onSelectFilterType = { viewModel.onEvent(GalleryEvent.SelectFilterType(it)) },
+                                onToggleCustomizeFilterChips = { viewModel.onEvent(GalleryEvent.ToggleCustomizeFilterChipsDialog(it)) },
                                 onRemoveCollagePhoto = { collage, photo -> viewModel.onEvent(GalleryEvent.RemoveCollagePhoto(collage, photo)) },
                                 onAddCollagePhoto = { viewModel.onEvent(GalleryEvent.AddCollagePhoto(it)) },
                                 onQueryChange = { viewModel.onEvent(GalleryEvent.UpdateSmartSearchQuery(it)) },
@@ -406,7 +498,8 @@ fun GalleryScreen(
                                 onTriggerBatchIndex = { viewModel.onEvent(GalleryEvent.TriggerBatchIndexFolder(it)) },
                                 onTriggerFolderEnrichment = { viewModel.onEvent(GalleryEvent.TriggerFolderMultimodalEnrichment(it)) },
                                 onPhotoClick = { photo, collectionId -> onPhotoClick(photo, true, collectionId) },
-                                onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) }
+                                onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) },
+                                onToggleSemanticPhotosDialog = { viewModel.onEvent(GalleryEvent.ToggleSemanticPhotosDialog(it)) }
                             )
                         }
                     }

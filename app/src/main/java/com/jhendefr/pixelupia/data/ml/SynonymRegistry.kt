@@ -80,11 +80,30 @@ object SynonymRegistry {
         "boda" to listOf("boda", "casamiento", "matrimonio", "ceremonia", "fiesta", "nupcias", "celebracion", "pareja"),
         "fiesta" to listOf("fiesta", "evento", "celebracion", "reunion", "agasajo", "festejo", "salida", "diversion", "party"),
         "concierto" to listOf("concierto", "recital", "musica", "show", "espectaculo", "banda", "festival"),
-        "navidad" to listOf("navidad", "nochebuena", "navideno", "arbolito", "regalos", "fiestas", "diciembre")
+        "navidad" to listOf("navidad", "nochebuena", "navideno", "arbolito", "regalos", "fiestas", "diciembre"),
+
+        // Colores y Variantes
+        "azul" to listOf("azul", "celeste", "marino", "turquesa", "blue"),
+        "celeste" to listOf("celeste", "azul claro", "cian", "azul"),
+        "rojo" to listOf("rojo", "carmesi", "escarlata", "bordo", "vinotinto", "red"),
+        "verde" to listOf("verde", "oliva", "esmeralda", "green"),
+        "amarillo" to listOf("amarillo", "dorado", "mostaza", "yellow"),
+        "negro" to listOf("negro", "oscuro", "black"),
+        "blanco" to listOf("blanco", "claro", "crema", "white"),
+        "gris" to listOf("gris", "plateado", "plomo", "gray", "grey"),
+        "marron" to listOf("marron", "cafe", "pardo", "castano", "brown"),
+        "naranja" to listOf("naranja", "anaranjado", "orange"),
+        "rosa" to listOf("rosa", "rosado", "fucsia", "pink"),
+        "violeta" to listOf("violeta", "morado", "purpura", "lila", "purple")
     )
 
+    private fun removeAccents(text: String): String {
+        val normalized = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD)
+        return normalized.replace(Regex("\\p{M}"), "")
+    }
+
     fun getSynonyms(term: String): List<String> {
-        val lower = term.trim().lowercase(Locale.ROOT)
+        val lower = removeAccents(term.trim().lowercase(Locale.ROOT))
         return synonymMap[lower] ?: emptyList()
     }
 
@@ -92,10 +111,12 @@ object SynonymRegistry {
      * Expande una cadena para el indice searchContent, inyectando de 4 a 10 sinonimos.
      */
     fun expandForSearchContent(label: String): String {
-        val lower = label.trim().lowercase(Locale.ROOT)
-        val synonyms = synonymMap[lower]
+        val cleanTerm = removeAccents(
+            label.substringBefore(" -").substringBefore("(").trim().lowercase(Locale.ROOT)
+        )
+        val synonyms = synonymMap[cleanTerm]
         return if (!synonyms.isNullOrEmpty()) {
-            synonyms.joinToString(" ")
+            "$label ${synonyms.joinToString(" ")}"
         } else {
             label
         }
@@ -108,11 +129,22 @@ object SynonymRegistry {
         val expandedTokens = mutableListOf<String>()
         for (token in tokens) {
             expandedTokens.add(token)
-            val lower = token.lowercase(Locale.ROOT)
+            val lower = removeAccents(token.lowercase(Locale.ROOT))
             synonymMap[lower]?.let { list ->
                 expandedTokens.addAll(list.take(6))
             }
         }
         return expandedTokens.distinct()
+    }
+
+    /**
+     * Expande un par compuesto objeto-color (ej. "camisa", "azul") generando variaciones
+     * con los sinonimos de dicho objeto y el color para enriquecer searchContent e indexar
+     * busquedas como "camisa azul", "remera azul", "playera azul", etc.
+     */
+    fun expandCompound(objectLabel: String, color: String): List<String> {
+        val synonyms = getSynonyms(objectLabel).ifEmpty { listOf(objectLabel) }
+        val cleanColor = color.trim().lowercase(Locale.ROOT)
+        return synonyms.map { "$it $cleanColor" }
     }
 }

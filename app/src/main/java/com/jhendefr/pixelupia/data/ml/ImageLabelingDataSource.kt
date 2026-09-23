@@ -23,7 +23,7 @@ class ImageLabelingDataSource(private val context: Context) {
 
     private val labeler = ImageLabeling.getClient(
         ImageLabelerOptions.Builder()
-            .setConfidenceThreshold(0.50f)
+            .setConfidenceThreshold(0.65f)
             .build()
     )
 
@@ -41,7 +41,21 @@ class ImageLabelingDataSource(private val context: Context) {
         suspendCancellableCoroutine { continuation ->
             labeler.process(image)
                 .addOnSuccessListener { labels ->
-                    val result = labels.map { label ->
+                    val result = labels.mapNotNull { label ->
+                        val rawLower = label.text.lowercase(java.util.Locale.ROOT)
+                        val isInsectOrBug = rawLower.contains("insect") ||
+                                rawLower.contains("arthropod") ||
+                                rawLower.contains("invertebrate") ||
+                                rawLower.contains("beetle") ||
+                                rawLower.contains("spider") ||
+                                rawLower.contains("caterpillar") ||
+                                rawLower.contains("pest") ||
+                                rawLower.contains("bug")
+
+                        if (isInsectOrBug && label.confidence < 0.85f) {
+                            return@mapNotNull null
+                        }
+
                         val translatedText = LabelTranslator.translate(label.text)
                         DetectedLabelItem(
                             text = translatedText,

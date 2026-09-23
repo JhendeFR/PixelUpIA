@@ -32,7 +32,9 @@ class GalleryViewModel(
     private val manageFaceClusterUseCase: com.jhendefr.pixelupia.domain.usecase.ManageFaceClusterUseCase? = null,
     private val getPhotosForClusterUseCase: com.jhendefr.pixelupia.domain.usecase.GetPhotosForClusterUseCase? = null,
     private val smartCollageGenerator: com.jhendefr.pixelupia.domain.usecase.SmartCollageGenerator = com.jhendefr.pixelupia.domain.usecase.SmartCollageGenerator(),
-    private val context: android.content.Context? = null
+    private val context: android.content.Context? = null,
+    private val smartGalleryDao: com.jhendefr.pixelupia.data.local.room.SmartGalleryDao? = null,
+    private val generateSmartMemoriesUseCase: com.jhendefr.pixelupia.domain.usecase.GenerateSmartMemoriesUseCase? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GalleryUiState())
@@ -50,6 +52,38 @@ class GalleryViewModel(
         observeSmartPhotos()
         observePreferences()
         observeFaceClusters()
+        observeMemoryStories()
+        observeSemanticPhotos()
+        generateSmartMemories()
+    }
+
+    private fun observeSemanticPhotos() {
+        if (smartGalleryDao != null) {
+            viewModelScope.launch {
+                smartGalleryDao.getPhotosWithEmbeddingFlow().collect { list ->
+                    _uiState.update { it.copy(semanticPhotos = list) }
+                }
+            }
+        }
+    }
+
+    private fun observeMemoryStories() {
+        if (smartGalleryDao != null) {
+            viewModelScope.launch {
+                smartGalleryDao.getAllStories().collect { stories ->
+                    _uiState.update { it.copy(memoryStories = stories) }
+                }
+            }
+        }
+    }
+
+    private fun generateSmartMemories() {
+        val useCase = generateSmartMemoriesUseCase ?: return
+        viewModelScope.launch {
+            try {
+                useCase()
+            } catch (_: Exception) {}
+        }
     }
 
     private fun observeSmartPhotos() {
@@ -94,6 +128,12 @@ class GalleryViewModel(
         viewModelScope.launch {
             preferencesDataSource.showIndexedCountFlow.collect { show ->
                 _uiState.update { it.copy(showIndexedCount = show) }
+            }
+        }
+
+        viewModelScope.launch {
+            preferencesDataSource.activeFilterChipsFlow.collect { chips ->
+                _uiState.update { it.copy(activeFilterChips = chips) }
             }
         }
     }
@@ -187,6 +227,7 @@ class GalleryViewModel(
                             userMessage = "Analisis inteligente completado para ${event.folderName}"
                         )
                     }
+                    generateSmartMemories()
                 }
             }
             is GalleryEvent.TogglePhotoSelection -> {
@@ -574,6 +615,176 @@ class GalleryViewModel(
             GalleryEvent.ClearUserMessage -> {
                 _uiState.update { it.copy(userMessage = null, errorMessage = null) }
             }
+
+            // Recuerdos Inteligentes (Smart Moments)
+            is GalleryEvent.OpenStory -> {
+                viewModelScope.launch {
+                    val photos = smartGalleryDao?.getPhotosByIds(event.story.photoIds) ?: emptyList()
+                    _uiState.update {
+                        it.copy(
+                            activeStory = event.story,
+                            activeStoryPhotos = photos
+                        )
+                    }
+                }
+            }
+            GalleryEvent.CloseStory -> {
+                _uiState.update {
+                    it.copy(
+                        activeStory = null,
+                        activeStoryPhotos = emptyList()
+                    )
+                }
+            }
+            GalleryEvent.GenerateMemories -> {
+                generateSmartMemories()
+            }
+            is GalleryEvent.OpenEditStoryName -> {
+                _uiState.update { it.copy(storyToEditName = event.story) }
+            }
+            is GalleryEvent.RenameStory -> {
+                viewModelScope.launch {
+                    smartGalleryDao?.updateStoryTitle(event.storyId, event.newTitle)
+                    _uiState.update { it.copy(storyToEditName = null, userMessage = "Nombre del recuerdo actualizado") }
+                }
+            }
+            is GalleryEvent.OpenAddPhotosToStory -> {
+                _uiState.update { it.copy(storyToAddPhotos = event.story) }
+            }
+            is GalleryEvent.AddPhotosToStory -> {
+                viewModelScope.launch {
+                    val story = smartGalleryDao?.getStoryById(event.storyId) ?: return@launch
+                    val currentPhotos = story.photoIds.toMutableList()
+                    event.newPhotoIds.forEach { if (!currentPhotos.contains(it)) currentPhotos.add(it) }
+                    val subtitle = "${currentPhotos.size} fotos destacadas"
+                    smartGalleryDao.updateStoryPhotos(event.storyId, currentPhotos, subtitle, story.coverUri)
+                    _uiState.update { it.copy(storyToAddPhotos = null, userMessage = "Fotos añadidas al recuerdo") }
+                    if (_uiState.value.activeStory?.storyId == event.storyId) {
+                        val photos = smartGalleryDao.getPhotosByIds(currentPhotos)
+                        val updatedStory = smartGalleryDao.getStoryById(event.storyId)
+                        _uiState.update { it.copy(activeStory = updatedStory, activeStoryPhotos = photos) }
+                    }
+                }
+            }
+            is GalleryEvent.OpenManageStoryPhotos -> {
+                _uiState.update { it.copy(storyToManagePhotos = event.story) }
+            }
+            is GalleryEvent.RemovePhotoFromStory -> {
+                viewModelScope.launch {
+                    val story = smartGalleryDao?.getStoryById(event.storyId) ?: return@launch
+                    val currentPhotos = story.photoIds.toMutableList()
+                    currentPhotos.remove(event.photoId)
+                    if (currentPhotos.isEmpty()) {
+                        smartGalleryDao.deleteStoryById(event.storyId)
+                        _uiState.update { it.copy(activeStory = null, activeStoryPhotos = emptyList(), storyToManagePhotos = null, userMessage = "Recuerdo eliminado por falta de fotos") }
+                    } else {
+                        val newCoverUri = if (story.coverUri.contains(event.photoId.toString())) {
+                            val firstPhoto = smartGalleryDao.getPhotoById(currentPhotos.first())
+                            firstPhoto?.uri ?: story.coverUri
+                        } else {
+                            story.coverUri
+                        }
+                        val subtitle = "${currentPhotos.size} fotos destacadas"
+                        smartGalleryDao.updateStoryPhotos(event.storyId, currentPhotos, subtitle, newCoverUri)
+                        _uiState.update { it.copy(userMessage = "Foto eliminada del recuerdo") }
+                        if (_uiState.value.activeStory?.storyId == event.storyId) {
+                            val photos = smartGalleryDao.getPhotosByIds(currentPhotos)
+                            val updatedStory = smartGalleryDao.getStoryById(event.storyId)
+                            _uiState.update { it.copy(activeStory = updatedStory, activeStoryPhotos = photos) }
+                        }
+                    }
+                }
+            }
+            is GalleryEvent.ToggleStoryPinned -> {
+                viewModelScope.launch {
+                    smartGalleryDao?.updateStoryPinned(event.storyId, event.isPinned)
+                    val msg = if (event.isPinned) "Recuerdo fijado" else "Recuerdo desfijado"
+                    _uiState.update { it.copy(userMessage = msg) }
+                }
+            }
+            is GalleryEvent.DeleteStory -> {
+                viewModelScope.launch {
+                    smartGalleryDao?.deleteStoryById(event.storyId)
+                    _uiState.update {
+                        if (it.activeStory?.storyId == event.storyId) {
+                            it.copy(activeStory = null, activeStoryPhotos = emptyList(), userMessage = "Recuerdo eliminado")
+                        } else {
+                            it.copy(userMessage = "Recuerdo eliminado")
+                        }
+                    }
+                }
+            }
+            is GalleryEvent.ToggleCreateManualStoryDialog -> {
+                _uiState.update { it.copy(showCreateManualStoryDialog = event.show) }
+                if (event.show) {
+                    loadSuggestedMemories()
+                }
+            }
+            GalleryEvent.LoadSuggestedMemories -> {
+                loadSuggestedMemories()
+            }
+            is GalleryEvent.CreateStoryFromSuggestion -> {
+                viewModelScope.launch {
+                    val storyToSave = event.suggestion.copy(
+                        isPinned = true,
+                        isManual = true
+                    )
+                    smartGalleryDao?.insertStory(storyToSave)
+                    _uiState.update { state ->
+                        state.copy(
+                            suggestedMemories = state.suggestedMemories.filterNot { it.title == event.suggestion.title },
+                            showCreateManualStoryDialog = false,
+                            userMessage = "Recuerdo '${event.suggestion.title}' creado"
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.CreateManualStory -> {
+                viewModelScope.launch {
+                    if (event.photoIds.isNotEmpty()) {
+                        val firstPhoto = smartGalleryDao?.getPhotoById(event.photoIds.first())
+                        val cover = firstPhoto?.uri ?: ""
+                        val newStory = com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity(
+                            title = event.title.ifBlank { "Mi Recuerdo" },
+                            subtitle = "${event.photoIds.size} fotos",
+                            coverUri = cover,
+                            photoIds = event.photoIds,
+                            storyType = "EVENT",
+                            isPinned = true,
+                            isManual = true
+                        )
+                        smartGalleryDao?.insertStory(newStory)
+                        _uiState.update { it.copy(showCreateManualStoryDialog = false, userMessage = "Recuerdo creado con exito") }
+                    }
+                }
+            }
+            is GalleryEvent.ToggleMomentsCollageView -> {
+                _uiState.update { it.copy(showMomentsCollageView = event.show) }
+            }
+            is GalleryEvent.ToggleCustomizeFilterChipsDialog -> {
+                _uiState.update { it.copy(showCustomizeFilterChipsDialog = event.show) }
+            }
+            is GalleryEvent.SaveActiveFilterChips -> {
+                preferencesDataSource.saveActiveFilterChips(event.chips)
+                _uiState.update { it.copy(showCustomizeFilterChipsDialog = false, userMessage = "Filtros personalizados actualizados") }
+            }
+            GalleryEvent.ResetFilterChipsToDefault -> {
+                preferencesDataSource.resetFilterChipsToDefault()
+                _uiState.update { it.copy(showCustomizeFilterChipsDialog = false, userMessage = "Filtros restablecidos") }
+            }
+            is GalleryEvent.ToggleSemanticPhotosDialog -> {
+                _uiState.update { it.copy(showSemanticPhotosDialog = event.show) }
+            }
+        }
+    }
+
+    private fun loadSuggestedMemories() {
+        val useCase = generateSmartMemoriesUseCase ?: return
+        viewModelScope.launch {
+            try {
+                val candidates = useCase.generateCandidateMemories()
+                _uiState.update { it.copy(suggestedMemories = candidates) }
+            } catch (_: Exception) {}
         }
     }
 

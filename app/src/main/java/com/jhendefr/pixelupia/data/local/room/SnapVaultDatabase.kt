@@ -11,9 +11,10 @@ import androidx.room.TypeConverters
         SmartPhotoEntity::class,
         SmartPhotoFtsEntity::class,
         FaceClusterEntity::class,
-        PhotoClusterCrossRefEntity::class
+        PhotoClusterCrossRefEntity::class,
+        MemoryStoryEntity::class
     ],
-    version = 6,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

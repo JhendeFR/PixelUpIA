@@ -17,8 +17,8 @@ class FaceClusteringService(
 ) {
 
     companion object {
-        const val FACE_THRESHOLD = 0.80f
-        const val PET_THRESHOLD = 0.86f
+        const val FACE_THRESHOLD = 0.65f
+        const val PET_THRESHOLD = 0.75f
     }
 
     suspend fun clusterPhotoFacesAndPets(
@@ -106,6 +106,8 @@ class FaceClusteringService(
 
         if (bestCluster != null && bestSimilarity >= threshold) {
             // Asignar al cluster existente
+            val alreadyInCluster = smartGalleryDao.hasPhotoInCluster(bestCluster.clusterId, photo.id)
+
             smartGalleryDao.insertCrossRef(
                 PhotoClusterCrossRefEntity(
                     photoId = photo.id,
@@ -115,11 +117,16 @@ class FaceClusteringService(
                 )
             )
 
-            // Actualizacion incremental del centroide
-            val currentCentroid = FaceEmbeddingDataSource.stringToVector(bestCluster.centroidVector)
-            val newCentroid = FaceEmbeddingDataSource.updateCentroidIncremental(currentCentroid, embedding)
+            // Actualizacion incremental del centroide solo si la foto es nueva en el cluster
+            val centroidString = if (!alreadyInCluster) {
+                val currentCentroid = FaceEmbeddingDataSource.stringToVector(bestCluster.centroidVector)
+                val newCentroid = FaceEmbeddingDataSource.updateCentroidIncremental(currentCentroid, embedding)
+                FaceEmbeddingDataSource.vectorToString(newCentroid)
+            } else {
+                bestCluster.centroidVector
+            }
 
-            // Regenerar y optimizar el recorte local centrado para el avatar
+            // Regenerar y optimizar el recorte local centrado para el avatar si hace falta
             val savedCrop = if (isPet) {
                 petEmbeddingDataSource.savePetCrop(bitmap, box, bestCluster.clusterId)
             } else {
@@ -127,13 +134,14 @@ class FaceClusteringService(
             }
             val newCoverUri = if (savedCrop.isNotBlank()) savedCrop else bestCluster.coverUri
 
-            val centroidString = FaceEmbeddingDataSource.vectorToString(newCentroid)
+            // Usar conteo real de fotos unicas vinculadas al cluster para evitar sobreconteo al reanalizar
+            val realPhotoCount = smartGalleryDao.getClusterPhotoCount(bestCluster.clusterId)
 
             smartGalleryDao.updateCluster(
                 bestCluster.copy(
                     centroidVector = centroidString,
                     coverUri = newCoverUri,
-                    photoCount = bestCluster.photoCount + 1,
+                    photoCount = realPhotoCount,
                     updatedAt = System.currentTimeMillis()
                 )
             )
@@ -163,19 +171,22 @@ class FaceClusteringService(
             }
             val finalCoverUri = if (cropUri.isNotBlank()) cropUri else photo.uri.toString()
 
-            smartGalleryDao.updateCluster(
-                tempCluster.copy(
-                    clusterId = newClusterId,
-                    coverUri = finalCoverUri
-                )
-            )
-
             smartGalleryDao.insertCrossRef(
                 PhotoClusterCrossRefEntity(
                     photoId = photo.id,
                     clusterId = newClusterId,
                     isExcluded = false,
                     similarity = 1.0f
+                )
+            )
+
+            val realCount = smartGalleryDao.getClusterPhotoCount(newClusterId).coerceAtLeast(1)
+
+            smartGalleryDao.updateCluster(
+                tempCluster.copy(
+                    clusterId = newClusterId,
+                    coverUri = finalCoverUri,
+                    photoCount = realCount
                 )
             )
         }

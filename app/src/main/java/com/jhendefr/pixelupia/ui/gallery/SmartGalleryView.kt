@@ -39,6 +39,7 @@ import com.jhendefr.pixelupia.domain.usecase.SmartCollectionItem
 import com.jhendefr.pixelupia.domain.usecase.SmartCollectionType
 import com.jhendefr.pixelupia.ui.gallery.components.CollageCanvasCard
 import com.jhendefr.pixelupia.ui.gallery.components.PersonPetAvatarRow
+import com.jhendefr.pixelupia.ui.gallery.components.SmartMomentsRow
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -66,6 +67,17 @@ fun SmartGalleryView(
     selectedIds: Set<Long>,
     isSelectionMode: Boolean,
     faceClusters: List<FaceCluster> = emptyList(),
+    memoryStories: List<com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity> = emptyList(),
+    onStoryClick: (com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) -> Unit = {},
+    onEditStoryName: (com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) -> Unit = {},
+    onAddPhotosToStory: (com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) -> Unit = {},
+    onManageStoryPhotos: (com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) -> Unit = {},
+    onToggleStoryPin: (com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) -> Unit = {},
+    onDeleteStory: (com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) -> Unit = {},
+    onCreateManualStory: () -> Unit = {},
+    onOpenCollageView: () -> Unit = {},
+    showMomentsCollageView: Boolean = false,
+    onCloseCollageView: () -> Unit = {},
     selectedFaceCluster: FaceCluster? = null,
     selectedFaceClusterPhotos: List<Photo> = emptyList(),
     showAddPhotosToClusterDialog: Boolean = false,
@@ -83,7 +95,9 @@ fun SmartGalleryView(
     onRemovePhotoFromFaceCluster: (Long, Long) -> Unit = { _, _ -> },
     smartCollages: List<SmartCollageItem> = emptyList(),
     selectedFilterType: String = "Todos",
+    activeFilterChips: List<String> = emptyList(),
     onSelectFilterType: (String) -> Unit = {},
+    onToggleCustomizeFilterChips: (Boolean) -> Unit = {},
     onRemoveCollagePhoto: (SmartCollageItem, Photo) -> Unit = { _, _ -> },
     onAddCollagePhoto: (SmartCollageItem) -> Unit = {},
     onQueryChange: (String) -> Unit,
@@ -98,8 +112,20 @@ fun SmartGalleryView(
     onTriggerBatchIndex: (String) -> Unit,
     onTriggerFolderEnrichment: (String) -> Unit = {},
     onPhotoClick: (Photo, String?) -> Unit,
-    onToggleSelection: (Long) -> Unit
+    onToggleSelection: (Long) -> Unit,
+    onToggleSemanticPhotosDialog: (Boolean) -> Unit = {}
 ) {
+    if (showMomentsCollageView) {
+        com.jhendefr.pixelupia.ui.gallery.components.MomentsCollageScreen(
+            stories = memoryStories,
+            allPhotos = allPhotos,
+            onBack = onCloseCollageView,
+            onStoryClick = onStoryClick,
+            onPhotoClick = { photo -> onPhotoClick(photo, null) }
+        )
+        return
+    }
+
     var showSmartOptionsMenu by remember { mutableStateOf(false) }
     var showClusterMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -209,7 +235,7 @@ fun SmartGalleryView(
             .padding(horizontal = 12.dp)
     ) {
         if (selectedFaceCluster != null) {
-            BackHandler(enabled = !isSelectionMode && selectedFaceCluster != null) {
+            BackHandler(enabled = !isSelectionMode) {
                 onSelectFaceCluster(null)
             }
             val clusterPhotos = selectedFaceClusterPhotos
@@ -641,6 +667,21 @@ fun SmartGalleryView(
                                         onToggleShowIndexedCount()
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("Vectores Semanticos (MobileCLIP)")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        showSmartOptionsMenu = false
+                                        onToggleSemanticPhotosDialog(true)
+                                    }
+                                )
                             }
                         }
                     }
@@ -704,6 +745,21 @@ fun SmartGalleryView(
                         }
                     }
                 } else {
+                    // SECCION 0: Recuerdos Inteligentes (Smart Moments)
+                    item {
+                        SmartMomentsRow(
+                            stories = memoryStories,
+                            onStoryClick = onStoryClick,
+                            onEditName = onEditStoryName,
+                            onAddPhotos = onAddPhotosToStory,
+                            onManagePhotos = onManageStoryPhotos,
+                            onTogglePin = onToggleStoryPin,
+                            onDeleteStory = onDeleteStory,
+                            onCreateManualStory = onCreateManualStory,
+                            onOpenCollageView = onOpenCollageView
+                        )
+                    }
+
                     // SECCION 1: Acceso Rapido a Gente y Mascotas
                     item {
                         PersonPetAvatarRow(
@@ -714,15 +770,15 @@ fun SmartGalleryView(
                         )
                     }
 
-                    // SECCION 2: Filtro Rapido por Tipo (Chips)
+                    // SECCION 2: Filtro Rapido por Tipo (Chips Dinamicos y Personalizables)
                     item {
-                        val filterChips = listOf("Todos", "Lugares", "Documentos", "Ropa", "Eventos", "Pagos", "Mascotas", "Codigos QR")
+                        val chipsToShow = listOf("Todos") + (if (activeFilterChips.isNotEmpty()) activeFilterChips else listOf("Lugares", "Documentos", "Ropa", "Eventos", "Pagos", "Mascotas", "Codigos QR"))
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             contentPadding = PaddingValues(horizontal = 4.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            items(filterChips) { filter ->
+                            items(chipsToShow) { filter ->
                                 val isSelected = filter.equals(selectedFilterType, ignoreCase = true)
                                 FilterChip(
                                     selected = isSelected,
@@ -735,32 +791,22 @@ fun SmartGalleryView(
                                     )
                                 )
                             }
-                        }
-                    }
 
-                    // SECCION 3: Canvas de Recuerdos y Collages
-                    if (smartCollages.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(
-                                    text = "Recuerdos y Collages Sugeridos",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                smartCollages.forEach { collage ->
-                                    CollageCanvasCard(
-                                        collage = collage,
-                                        onPhotoClick = { photo -> onPhotoClick(photo, null) },
-                                        onRemovePhoto = onRemoveCollagePhoto,
-                                        onAddPhotoClick = onAddCollagePhoto
+                            item {
+                                InputChip(
+                                    selected = false,
+                                    onClick = { onToggleCustomizeFilterChips(true) },
+                                    label = { Text("+ Personalizar") },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = InputChipDefaults.inputChipColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                                     )
-                                }
+                                )
                             }
                         }
                     }
 
-                    // SECCION 4: Cuadricula de Albumes Inteligentes (Aspecto Fotografico 4:3 y Conteo Dinamico)
+                    // SECCION 3: Cuadricula de Albumes Inteligentes (Aspecto Fotografico 4:3 y Conteo Dinamico)
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -813,7 +859,14 @@ fun SmartGalleryView(
                                 val t = c.title.lowercase(java.util.Locale.ROOT)
                                 t.contains("qr") || t.contains("codigo") || t.contains("barcode")
                             }
-                            else -> visualCollections
+                            "Todos" -> visualCollections
+                            else -> {
+                                val q = selectedFilterType.lowercase(java.util.Locale.ROOT).trim()
+                                visualCollections.filter { c ->
+                                    val t = c.title.lowercase(java.util.Locale.ROOT)
+                                    t.contains(q) || q.contains(t)
+                                }
+                            }
                         }
                         if (selectedFilterType == "Todos") {
                             appCollections + baseVisual

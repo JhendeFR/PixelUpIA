@@ -256,7 +256,8 @@ class ViewerViewModel(
                     val boxes = result.faces.mapIndexed { index, face ->
                         AiBoundingBoxItem(
                             id = face.id,
-                            label = "Rostro #${index + 1}",
+                            label = "Rostro analizado #${index + 1}",
+                            subLabel = "Rostro analizado para agrupacion biometrica FaceNet",
                             box = face.box,
                             type = AiOverlayType.FACE
                         )
