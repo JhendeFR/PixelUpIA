@@ -155,7 +155,8 @@ class MainActivity : ComponentActivity() {
                     getPhotosForClusterUseCase = getPhotosForClusterUseCase,
                     context = applicationContext,
                     smartGalleryDao = snapVaultDb.smartGalleryDao(),
-                    generateSmartMemoriesUseCase = generateSmartMemoriesUseCase
+                    generateSmartMemoriesUseCase = generateSmartMemoriesUseCase,
+                    managePhotoTagsUseCase = managePhotoTagsUseCase
                 ) as T
             }
         }

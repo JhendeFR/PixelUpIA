@@ -313,7 +313,6 @@ class FaceClusteringService(
         }
     }
 
-    // Asignar manualmente la foto de portada de un cluster
     suspend fun setClusterCover(
         clusterId: Long,
         photo: Photo,
@@ -367,7 +366,6 @@ class FaceClusteringService(
         }
     }
 
-    // Fusionar dos clusters de personas o mascotas
     suspend fun mergeClusters(
         targetClusterId: Long,
         sourceClusterId: Long
@@ -397,7 +395,6 @@ class FaceClusteringService(
             for (i in mergedCentroid.indices) mergedCentroid[i] = (mergedCentroid[i] / norm).toFloat()
         }
 
-        // Mover las fotos asociadas de source a target
         val sourceCrossRefs = smartGalleryDao.getCrossRefsForCluster(sourceClusterId)
         for (ref in sourceCrossRefs) {
             smartGalleryDao.insertCrossRef(

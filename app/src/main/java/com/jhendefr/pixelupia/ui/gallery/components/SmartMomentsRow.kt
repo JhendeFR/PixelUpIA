@@ -245,9 +245,7 @@ private fun StoryCard(
             ) {
                 IconButton(
                     onClick = { showMenu = true },
-                    modifier = Modifier
-                        .size(28.dp)
-                        .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                    modifier = Modifier.size(28.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,

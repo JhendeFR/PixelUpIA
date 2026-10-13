@@ -101,8 +101,11 @@ fun SmartGalleryView(
     onRemoveCollagePhoto: (SmartCollageItem, Photo) -> Unit = { _, _ -> },
     onAddCollagePhoto: (SmartCollageItem) -> Unit = {},
     onQueryChange: (String) -> Unit,
-    onSelectFolder: (String?) -> Unit,
+    onSelectFolder: (String?) -> Unit = {},
     onSelectSmartCollection: (SmartCollectionItem?) -> Unit = {},
+    showAddPhotosToCollectionDialog: Boolean = false,
+    onToggleAddPhotosToCollectionDialog: (Boolean) -> Unit = {},
+    onAddPhotoToSmartCollection: (SmartCollectionItem, Photo) -> Unit = { _, _ -> },
     onHideCollection: (String) -> Unit = {},
     onUnhideCollection: (String) -> Unit = {},
     onToggleHiddenCollectionsDialog: (Boolean) -> Unit = {},
@@ -158,6 +161,18 @@ fun SmartGalleryView(
             chosenIndexFolders = chosenIndexFolders,
             onAddPhoto = { photo -> onAddPhotoToFaceCluster(selectedFaceCluster.id, photo) },
             onDismiss = { onToggleAddPhotosToClusterDialog(false) }
+        )
+    }
+
+    // Dialogo para anadir fotos a la coleccion inteligente
+    if (showAddPhotosToCollectionDialog && selectedSmartCollection != null) {
+        AddPhotosToCollectionDialog(
+            collectionName = selectedSmartCollection.title,
+            allPhotos = allPhotos,
+            existingPhotoIds = selectedSmartCollection.photos.map { it.id }.toSet(),
+            chosenIndexFolders = chosenIndexFolders,
+            onAddPhoto = { photo -> onAddPhotoToSmartCollection(selectedSmartCollection, photo) },
+            onDismiss = { onToggleAddPhotosToCollectionDialog(false) }
         )
     }
 
@@ -430,6 +445,8 @@ fun SmartGalleryView(
             }
 
             Column(modifier = Modifier.fillMaxSize()) {
+                var showCollectionMenu by remember { mutableStateOf(false) }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -458,6 +475,47 @@ fun SmartGalleryView(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+
+                    Box {
+                        IconButton(onClick = { showCollectionMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Opciones del album"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showCollectionMenu,
+                            onDismissRequest = { showCollectionMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Agregar fotos a la colección") },
+                                onClick = {
+                                    showCollectionMenu = false
+                                    onToggleAddPhotosToCollectionDialog(true)
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.AddPhotoAlternate,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ocultar colección") },
+                                onClick = {
+                                    showCollectionMenu = false
+                                    onHideCollection(selectedSmartCollection.id)
+                                    onSelectSmartCollection(null)
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.VisibilityOff,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -1599,6 +1657,84 @@ fun AddPhotosToClusterDialog(
                 Column(modifier = Modifier.fillMaxWidth().height(380.dp)) {
                     Text(
                         text = "Selecciona una foto para asociarla a este grupo y reforzar el aprendizaje del modelo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 85.dp),
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(candidatePhotos, key = { it.id }) { photo ->
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        onAddPhoto(photo)
+                                        onDismiss()
+                                    }
+                            ) {
+                                AsyncImage(
+                                    model = photo.uri,
+                                    contentDescription = photo.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cerrar")
+            }
+        }
+    )
+}
+
+@Composable
+fun AddPhotosToCollectionDialog(
+    collectionName: String,
+    allPhotos: List<Photo>,
+    existingPhotoIds: Set<Long>,
+    chosenIndexFolders: Set<String> = emptySet(),
+    onAddPhoto: (Photo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val candidatePhotos = remember(allPhotos, existingPhotoIds, chosenIndexFolders) {
+        allPhotos.filter { photo ->
+            !existingPhotoIds.contains(photo.id) &&
+            (chosenIndexFolders.isEmpty() || chosenIndexFolders.any { folder ->
+                photo.folderName.equals(folder, ignoreCase = true) || photo.folderName.contains(folder, ignoreCase = true)
+            })
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Añadir fotos a $collectionName",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            if (candidatePhotos.isEmpty()) {
+                Text(
+                    text = "No hay más fotos disponibles en las carpetas seleccionadas para añadir a esta colección.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column(modifier = Modifier.fillMaxWidth().height(380.dp)) {
+                    Text(
+                        text = "Selecciona una foto para agregarla a esta colección. Se inyectará el tag correspondiente para habilitar su búsqueda.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)

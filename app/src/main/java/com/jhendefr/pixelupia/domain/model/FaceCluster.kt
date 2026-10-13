@@ -11,5 +11,5 @@ data class FaceCluster(
 ) {
     val isCustomNamed: Boolean get() = !name.startsWith("Persona") && !name.startsWith("Mascota")
     val isUserNamed: Boolean get() = isCustomNamed
-    val isFrequent: Boolean get() = isPet || photoCount >= 3 || isCustomNamed
+    val isFrequent: Boolean get() = isPet || photoCount >= 1 || isCustomNamed
 }

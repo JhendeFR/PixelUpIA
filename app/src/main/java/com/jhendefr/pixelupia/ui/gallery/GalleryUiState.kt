@@ -68,7 +68,8 @@ data class GalleryUiState(
     val showCustomizeFilterChipsDialog: Boolean = false,
     val activeFilterChips: List<String> = listOf("Lugares", "Documentos", "Ropa", "Eventos", "Pagos", "Mascotas", "Codigos QR"),
     val semanticPhotos: List<com.jhendefr.pixelupia.data.local.room.SmartPhotoEntity> = emptyList(),
-    val showSemanticPhotosDialog: Boolean = false
+    val showSemanticPhotosDialog: Boolean = false,
+    val showAddPhotosToCollectionDialog: Boolean = false
 ) {
     val isSelectionMode: Boolean get() = selectedPhotoIds.isNotEmpty()
     val selectedPhotos: List<Photo> get() = photos.filter { selectedPhotoIds.contains(it.id) }
@@ -107,6 +108,9 @@ sealed interface GalleryEvent {
     data class HideCollection(val collectionId: String) : GalleryEvent
     data class UnhideCollection(val collectionId: String) : GalleryEvent
     data class ToggleHiddenCollectionsDialog(val show: Boolean) : GalleryEvent
+    data class RemovePhotosFromSmartCollection(val collection: SmartCollectionItem, val photoIds: List<Long>) : GalleryEvent
+    data class AddPhotoToSmartCollection(val collection: SmartCollectionItem, val photo: Photo) : GalleryEvent
+    data class ToggleAddPhotosToCollectionDialog(val show: Boolean) : GalleryEvent
 
     // Gestion de Carpetas Indexadas Dinamicas y Visibilidad de Conteo
     data class ToggleFolderManagerDialog(val show: Boolean) : GalleryEvent

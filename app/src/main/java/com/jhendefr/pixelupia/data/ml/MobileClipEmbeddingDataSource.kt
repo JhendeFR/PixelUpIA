@@ -12,10 +12,6 @@ import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import kotlin.math.sqrt
 
-/**
- * Fuente de datos para inferencia de embeddings multimodales con MobileCLIP-S0 (Vision y Texto).
- * Genera representaciones vectoriales normalizadas L2 de 512 dimensiones para imagenes y consultas textuales.
- */
 class MobileClipEmbeddingDataSource(
     private val context: Context
 ) {
@@ -58,7 +54,6 @@ class MobileClipEmbeddingDataSource(
 
     /**
      * Extrae el embedding semantico de una imagen bitmap redimensionada a 224x224.
-     * Soporta ordenes de tensores NHWC y NCHW de forma dinamica.
      */
     suspend fun extractImageEmbedding(bitmap: Bitmap): Result<FloatArray> = withContext(Dispatchers.Default) {
         try {
@@ -70,12 +65,11 @@ class MobileClipEmbeddingDataSource(
             val inputShape = interpreter.getInputTensor(0).shape()
             val isNchw = inputShape.size == 4 && inputShape[1] == 3
 
-            // Buffer de entrada en Float32 (4 bytes por valor)
             val inputBuffer = ByteBuffer.allocateDirect(1 * 3 * imageInputSize * imageInputSize * 4).apply {
                 order(ByteOrder.nativeOrder())
             }
 
-            // Normalizacion de MobileCLIP (media y std de ImageNet/OpenAI CLIP)
+            // Normalizacion de MobileCLIP (media y std de ImageNet)
             val meanR = 0.48145466f
             val meanG = 0.45782750f
             val meanB = 0.40821073f
@@ -122,7 +116,6 @@ class MobileClipEmbeddingDataSource(
             val outputDim = interpreter.getOutputTensor(0).shape().let { shape ->
                 if (shape.size > 1) shape[1] else shape[0]
             }
-            // Buffer de salida en Float32 (4 bytes por dimension)
             val outputBuffer = ByteBuffer.allocateDirect(outputDim * 4).apply {
                 order(ByteOrder.nativeOrder())
             }
@@ -147,7 +140,7 @@ class MobileClipEmbeddingDataSource(
     }
 
     /**
-     * Extrae el embedding semantico de una consulta textual utilizando el tokenizer BPE y el Text Transformer.
+     * Extrae el embedding semantico
      */
     suspend fun extractTextEmbedding(query: String): Result<FloatArray> = withContext(Dispatchers.Default) {
         try {

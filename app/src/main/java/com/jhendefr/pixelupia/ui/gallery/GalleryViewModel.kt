@@ -34,8 +34,11 @@ class GalleryViewModel(
     private val smartCollageGenerator: com.jhendefr.pixelupia.domain.usecase.SmartCollageGenerator = com.jhendefr.pixelupia.domain.usecase.SmartCollageGenerator(),
     private val context: android.content.Context? = null,
     private val smartGalleryDao: com.jhendefr.pixelupia.data.local.room.SmartGalleryDao? = null,
-    private val generateSmartMemoriesUseCase: com.jhendefr.pixelupia.domain.usecase.GenerateSmartMemoriesUseCase? = null
+    private val generateSmartMemoriesUseCase: com.jhendefr.pixelupia.domain.usecase.GenerateSmartMemoriesUseCase? = null,
+    private val managePhotoTagsUseCase: com.jhendefr.pixelupia.domain.usecase.ManagePhotoTagsUseCase? = null
 ) : ViewModel() {
+
+    private val photoTagsManager = managePhotoTagsUseCase ?: smartGalleryDao?.let { com.jhendefr.pixelupia.domain.usecase.ManagePhotoTagsUseCase(it) }
 
     private val _uiState = MutableStateFlow(GalleryUiState())
     val uiState: StateFlow<GalleryUiState> = _uiState.asStateFlow()
@@ -427,6 +430,41 @@ class GalleryViewModel(
             }
             is GalleryEvent.ToggleHiddenCollectionsDialog -> {
                 _uiState.update { it.copy(showHiddenCollectionsDialog = event.show) }
+            }
+            is GalleryEvent.RemovePhotosFromSmartCollection -> {
+                viewModelScope.launch {
+                    val manager = photoTagsManager
+                    for (photoId in event.photoIds) {
+                        manager?.removeTag(photoId, event.collection.title)
+                        if (event.collection.type == com.jhendefr.pixelupia.domain.usecase.SmartCollectionType.SOURCE_APP) {
+                            smartGalleryDao?.updatePhotoSourceApp(photoId, "")
+                        }
+                    }
+                    _uiState.update {
+                        it.copy(
+                            userMessage = if (event.photoIds.size == 1) "Foto quitada del álbum" else "${event.photoIds.size} fotos quitadas del álbum",
+                            selectedPhotoIds = emptySet()
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.AddPhotoToSmartCollection -> {
+                viewModelScope.launch {
+                    val manager = photoTagsManager
+                    manager?.addTag(event.photo.id, event.collection.title)
+                    if (event.collection.type == com.jhendefr.pixelupia.domain.usecase.SmartCollectionType.SOURCE_APP) {
+                        smartGalleryDao?.updatePhotoSourceApp(event.photo.id, event.collection.title)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            userMessage = "Foto añadida a '${event.collection.title}'",
+                            showAddPhotosToCollectionDialog = false
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.ToggleAddPhotosToCollectionDialog -> {
+                _uiState.update { it.copy(showAddPhotosToCollectionDialog = event.show) }
             }
 
             // Carpetas de Indexacion Dinamicas

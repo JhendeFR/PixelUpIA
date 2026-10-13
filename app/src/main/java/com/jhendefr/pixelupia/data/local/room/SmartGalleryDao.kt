@@ -136,10 +136,13 @@ interface SmartGalleryDao {
     @Query("SELECT * FROM smart_photos WHERE photoId IN (:photoIds)")
     suspend fun getPhotosByIds(photoIds: List<Long>): List<SmartPhotoEntity>
 
+    @Query("UPDATE smart_photos SET sourceApp = :sourceApp WHERE photoId = :photoId")
+    suspend fun updatePhotoSourceApp(photoId: Long, sourceApp: String): Int
+
     // Gestion de Clusters de Personas y Mascotas
     @Query("""
         SELECT * FROM face_clusters 
-        WHERE (photoCount >= 2 OR isUserNamed = 1) AND isHidden = 0 
+        WHERE (photoCount >= 1 OR isUserNamed = 1) AND isHidden = 0 
         ORDER BY photoCount DESC, updatedAt DESC
     """)
     fun getAllClusters(): Flow<List<FaceClusterEntity>>

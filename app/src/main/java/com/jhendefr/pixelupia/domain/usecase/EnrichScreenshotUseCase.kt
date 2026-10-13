@@ -1,6 +1,7 @@
 package com.jhendefr.pixelupia.domain.usecase
 
 import android.net.Uri
+import android.util.Log
 import com.jhendefr.pixelupia.data.local.room.SmartGalleryDao
 import com.jhendefr.pixelupia.data.local.room.SmartPhotoEntity
 import com.jhendefr.pixelupia.data.ml.BarcodeDataSource
@@ -10,6 +11,7 @@ import com.jhendefr.pixelupia.data.ml.ImageLabelingDataSource
 import com.jhendefr.pixelupia.data.ocr.TextRecognitionDataSource
 import com.jhendefr.pixelupia.domain.model.MultimodalMetadata
 import com.jhendefr.pixelupia.domain.model.Photo
+import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -33,9 +35,14 @@ class EnrichScreenshotUseCase(
 
             // Si la foto no esta en Room o no tiene OCR previo, ejecutar OCR primero
             var textContent = existingEntity?.textContent ?: ""
+            var latencyOcr = 0L
             if (existingEntity == null) {
-                val ocrResult = textRecognitionDataSource.processImage(photo.uri)
-                textContent = ocrResult.text
+                var ocrResult: com.jhendefr.pixelupia.data.ocr.OcrResult? = null
+                latencyOcr = measureTimeMillis {
+                    ocrResult = textRecognitionDataSource.processImage(photo.uri)
+                }
+                val nonNullOcr = ocrResult ?: textRecognitionDataSource.processImage(photo.uri)
+                textContent = nonNullOcr.text
                 val sourceApp = photo.sourceApp ?: com.jhendefr.pixelupia.domain.classifier.ScreenshotSourceClassifier.extractSourceApp(photo.name)
                 val entity = SmartPhotoEntity(
                     photoId = photo.id,
@@ -43,20 +50,24 @@ class EnrichScreenshotUseCase(
                     name = photo.name,
                     folderName = photo.folderName,
                     dateAdded = photo.dateTaken,
-                    textContent = ocrResult.text,
-                    boundingBoxes = ocrResult.boundingBoxesJson,
+                    textContent = nonNullOcr.text,
+                    boundingBoxes = nonNullOcr.boundingBoxesJson,
                     sourceApp = sourceApp,
                     searchContent = "$textContent ${sourceApp ?: ""}".trim()
                 )
                 smartGalleryDao.insertPhoto(entity)
                 existingEntity = entity
             } else if (textContent.isBlank()) {
-                val ocrResult = textRecognitionDataSource.processImage(photo.uri)
-                textContent = ocrResult.text
+                var ocrResult: com.jhendefr.pixelupia.data.ocr.OcrResult? = null
+                latencyOcr = measureTimeMillis {
+                    ocrResult = textRecognitionDataSource.processImage(photo.uri)
+                }
+                val nonNullOcr = ocrResult ?: textRecognitionDataSource.processImage(photo.uri)
+                textContent = nonNullOcr.text
                 val updatedEntity = existingEntity.copy(
-                    textContent = ocrResult.text,
-                    boundingBoxes = ocrResult.boundingBoxesJson,
-                    searchContent = "${ocrResult.text} ${existingEntity.sourceApp ?: ""}".trim()
+                    textContent = nonNullOcr.text,
+                    boundingBoxes = nonNullOcr.boundingBoxesJson,
+                    searchContent = "${nonNullOcr.text} ${existingEntity.sourceApp ?: ""}".trim()
                 )
                 smartGalleryDao.insertPhoto(updatedEntity)
                 existingEntity = updatedEntity
@@ -244,12 +255,17 @@ class EnrichScreenshotUseCase(
 
             // Extraccion de Embedding Semantico con MobileCLIP-S0 (Vision)
             val clipZeroShotLabels = mutableListOf<String>()
+            var latencyClip = 0L
             val semanticEmbeddingBase64 = if (loadedBitmap != null && mobileClipDataSource != null) {
-                val embResult = mobileClipDataSource.extractImageEmbedding(loadedBitmap)
-                if (embResult.isFailure) {
-                    android.util.Log.e("MobileCLIP", "Fallo al generar embedding para ${photo.name}: ${embResult.exceptionOrNull()?.message}")
+                var embResult: Result<FloatArray>? = null
+                latencyClip = measureTimeMillis {
+                    embResult = mobileClipDataSource.extractImageEmbedding(loadedBitmap)
                 }
-                val rawEmb = embResult.getOrNull()
+                val nonNullEmbResult = embResult ?: mobileClipDataSource.extractImageEmbedding(loadedBitmap)
+                if (nonNullEmbResult.isFailure) {
+                    Log.e("MobileCLIP", "Fallo al generar embedding para ${photo.name}: ${nonNullEmbResult.exceptionOrNull()?.message}")
+                }
+                val rawEmb = nonNullEmbResult.getOrNull()
                 if (rawEmb != null) {
                     val predictions = mobileClipDataSource.predictZeroShotLabels(rawEmb, topK = 3, threshold = 0.16f)
                     for ((label, score) in predictions) {
@@ -259,11 +275,12 @@ class EnrichScreenshotUseCase(
                     com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource.embeddingToBase64(rawEmb)
                 } else null
             } else {
-                android.util.Log.w("MobileCLIP", "No se genero embedding para ${photo.name}: loadedBitmap=${loadedBitmap != null}, dataSource=${mobileClipDataSource != null}")
+                Log.w("MobileCLIP", "No se genero embedding para ${photo.name}: loadedBitmap=${loadedBitmap != null}, dataSource=${mobileClipDataSource != null}")
                 null
             }
 
             // Agrupamiento de Rostros y Mascotas con FaceClusteringService
+            var latencyClustering = 0L
             if (faceClusteringService != null && loadedBitmap != null) {
                 try {
                     if (faceCandidates.isNotEmpty() || petBoxes.isNotEmpty()) {
@@ -298,17 +315,21 @@ class EnrichScreenshotUseCase(
                             )
                         }
 
-                        faceClusteringService.clusterPhotoFacesAndPets(
-                            photo = photo,
-                            bitmap = loadedBitmap,
-                            detectedFaces = scaledFaces,
-                            petBoundingBoxes = scaledPetBoxes
-                        )
+                        latencyClustering = measureTimeMillis {
+                            faceClusteringService.clusterPhotoFacesAndPets(
+                                photo = photo,
+                                bitmap = loadedBitmap,
+                                detectedFaces = scaledFaces,
+                                petBoundingBoxes = scaledPetBoxes
+                            )
+                        }
                     }
                 } catch (_: Exception) {
                     // Continuar si ocurre error al clusterizar imagen individual
                 }
             }
+
+            Log.i("BENCHMARK_SNAPVAULT", "OCR: ${latencyOcr}ms | CLIP: ${latencyClip}ms | Cluster: ${latencyClustering}ms")
 
             // Construir indice concatenado enriquecido con expansion de sinonimos para busqueda FTS5
             val allLabels = (multimodalResult.labels + colorPairs + clipZeroShotLabels).distinct()

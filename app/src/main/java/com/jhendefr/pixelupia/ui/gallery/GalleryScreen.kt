@@ -499,7 +499,10 @@ fun GalleryScreen(
                                 onTriggerFolderEnrichment = { viewModel.onEvent(GalleryEvent.TriggerFolderMultimodalEnrichment(it)) },
                                 onPhotoClick = { photo, collectionId -> onPhotoClick(photo, true, collectionId) },
                                 onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) },
-                                onToggleSemanticPhotosDialog = { viewModel.onEvent(GalleryEvent.ToggleSemanticPhotosDialog(it)) }
+                                onToggleSemanticPhotosDialog = { viewModel.onEvent(GalleryEvent.ToggleSemanticPhotosDialog(it)) },
+                                showAddPhotosToCollectionDialog = uiState.showAddPhotosToCollectionDialog,
+                                onToggleAddPhotosToCollectionDialog = { viewModel.onEvent(GalleryEvent.ToggleAddPhotosToCollectionDialog(it)) },
+                                onAddPhotoToSmartCollection = { col, photo -> viewModel.onEvent(GalleryEvent.AddPhotoToSmartCollection(col, photo)) }
                             )
                         }
                     }
@@ -633,22 +636,44 @@ fun GalleryScreen(
                                     )
                                 }
 
-                                // Boton para desindexar seleccion en modo IA
+                                // Boton contextual en modo IA: Quitar del album o Desindexar
                                 if (uiState.selectedTab == GalleryTab.SMART_AI) {
-                                    IconButton(
-                                        onClick = {
-                                            uiState.selectedPhotoIds.forEach { id ->
-                                                viewModel.onEvent(GalleryEvent.UnindexPhoto(id))
-                                            }
-                                            viewModel.onEvent(GalleryEvent.ClearSelection)
-                                        },
-                                        modifier = Modifier.minimumInteractiveComponentSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.LayersClear,
-                                            contentDescription = "Desindexar",
-                                            tint = MaterialTheme.colorScheme.secondary
-                                        )
+                                    if (uiState.selectedSmartCollection != null) {
+                                        IconButton(
+                                            onClick = {
+                                                val col = uiState.selectedSmartCollection ?: return@IconButton
+                                                viewModel.onEvent(
+                                                    GalleryEvent.RemovePhotosFromSmartCollection(
+                                                        collection = col,
+                                                        photoIds = uiState.selectedPhotoIds.toList()
+                                                    )
+                                                )
+                                                viewModel.onEvent(GalleryEvent.ClearSelection)
+                                            },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.FolderDelete,
+                                                contentDescription = "Quitar del album",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    } else {
+                                        IconButton(
+                                            onClick = {
+                                                uiState.selectedPhotoIds.forEach { id ->
+                                                    viewModel.onEvent(GalleryEvent.UnindexPhoto(id))
+                                                }
+                                                viewModel.onEvent(GalleryEvent.ClearSelection)
+                                            },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.LayersClear,
+                                                contentDescription = "Desindexar",
+                                                tint = MaterialTheme.colorScheme.secondary
+                                            )
+                                        }
                                     }
                                 }
 
