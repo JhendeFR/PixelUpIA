@@ -88,7 +88,9 @@ class MainActivity : ComponentActivity() {
         val faceClusteringService = com.jhendefr.pixelupia.data.ml.FaceClusteringService(
             faceEmbeddingDataSource = faceEmbeddingDataSource,
             petEmbeddingDataSource = petEmbeddingDataSource,
-            smartGalleryDao = snapVaultDb.smartGalleryDao()
+            smartGalleryDao = snapVaultDb.smartGalleryDao(),
+            faceDetectionDataSource = faceDetectionDataSource,
+            objectDetectionDataSource = objectDetectionDataSource
         )
         val getFaceClustersUseCase = com.jhendefr.pixelupia.domain.usecase.GetFaceClustersUseCase(snapVaultDb.smartGalleryDao())
         val manageFaceClusterUseCase = com.jhendefr.pixelupia.domain.usecase.ManageFaceClusterUseCase(
@@ -128,8 +130,8 @@ class MainActivity : ComponentActivity() {
             mobileClipDataSource = mobileClipDataSource
         )
 
-        // Programar enriquecimiento multimodal periodico con WorkManager
-        WorkManagerScheduler.schedulePeriodicEnrichment(applicationContext)
+        // Indexacion automatica en segundo plano desactivada
+        androidx.work.WorkManager.getInstance(applicationContext).cancelUniqueWork("MultimodalEnrichmentPeriodic")
 
         val galleryViewModelFactory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -289,24 +291,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            try {
-                screenCaptureCallback = Activity.ScreenCaptureCallback {
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        delay(700)
-                        val latestScreenshot = mediaStoreDataSource.fetchLatestScreenshot()
-                        if (latestScreenshot != null) {
-                            indexScreenshotUseCase(latestScreenshot)
-                            WorkManagerScheduler.triggerOneTimeEnrichment(applicationContext)
-                        }
-                    }
-                }
-                registerScreenCaptureCallback(mainExecutor, screenCaptureCallback!!)
-            } catch (e: SecurityException) {
-                // Manejo de seguridad en caso de que el permiso no este disponible
-                screenCaptureCallback = null
-            }
-        }
+        // Indexacion automatica de screenshots al capturar desactivada
     }
 
     override fun onStop() {

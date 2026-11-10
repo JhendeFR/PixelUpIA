@@ -34,11 +34,7 @@ class SmartGalleryPreferencesDataSource(context: Context) {
 
     private fun loadChosenFolders(): Set<String> {
         val stored = prefs.getStringSet(keyChosenFolders, null)
-        return if (stored.isNullOrEmpty()) {
-            setOf("Screenshots")
-        } else {
-            stored
-        }
+        return stored ?: emptySet()
     }
 
     private fun loadShowIndexedCount(): Boolean {
@@ -85,9 +81,8 @@ class SmartGalleryPreferencesDataSource(context: Context) {
     }
 
     fun setChosenFolders(folders: Set<String>) {
-        val finalFolders = if (folders.isEmpty()) setOf("Screenshots") else folders
-        prefs.edit().putStringSet(keyChosenFolders, finalFolders).apply()
-        _chosenFoldersFlow.value = finalFolders
+        prefs.edit().putStringSet(keyChosenFolders, folders).apply()
+        _chosenFoldersFlow.value = folders
     }
 
     fun toggleFolderIndexing(folderName: String) {
@@ -97,9 +92,8 @@ class SmartGalleryPreferencesDataSource(context: Context) {
         } else {
             current.add(folderName)
         }
-        val finalFolders = if (current.isEmpty()) setOf("Screenshots") else current
-        prefs.edit().putStringSet(keyChosenFolders, finalFolders).apply()
-        _chosenFoldersFlow.value = finalFolders
+        prefs.edit().putStringSet(keyChosenFolders, current).apply()
+        _chosenFoldersFlow.value = current
     }
 
     fun toggleShowIndexedCount(): Boolean {

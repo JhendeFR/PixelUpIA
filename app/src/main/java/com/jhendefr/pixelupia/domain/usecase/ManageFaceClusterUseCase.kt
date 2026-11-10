@@ -36,4 +36,8 @@ class ManageFaceClusterUseCase(
     suspend fun setClusterCover(clusterId: Long, photo: Photo, bitmap: Bitmap?) {
         faceClusteringService.setClusterCover(clusterId, photo, bitmap)
     }
+
+    suspend fun rebuildAllClustersFromScratch() {
+        faceClusteringService.rebuildAllClustersFromScratch()
+    }
 }

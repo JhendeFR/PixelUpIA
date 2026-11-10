@@ -41,7 +41,7 @@ data class GalleryUiState(
     val hiddenCollectionIds: Set<String> = emptySet(),
     val hiddenCollections: List<SmartCollectionItem> = emptyList(),
     val showHiddenCollectionsDialog: Boolean = false,
-    val chosenIndexFolders: Set<String> = setOf("Screenshots"),
+    val chosenIndexFolders: Set<String> = emptySet(),
     val showFolderManagerDialog: Boolean = false,
     val showIndexedCount: Boolean = true,
     val favoritePhotoIds: Set<Long> = emptySet(),
@@ -137,6 +137,7 @@ sealed interface GalleryEvent {
     object OnIntentSenderCompleted : GalleryEvent
     object OnIntentSenderDismissed : GalleryEvent
     object ClearUserMessage : GalleryEvent
+    object RebuildAllClustersAndReEnrich : GalleryEvent
 
     // Recuerdos Inteligentes (Smart Moments)
     data class OpenStory(val story: com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity) : GalleryEvent
@@ -158,5 +159,6 @@ sealed interface GalleryEvent {
     data class ToggleCustomizeFilterChipsDialog(val show: Boolean) : GalleryEvent
     data class SaveActiveFilterChips(val chips: List<String>) : GalleryEvent
     object ResetFilterChipsToDefault : GalleryEvent
+    object ClearAllInferences : GalleryEvent
     data class ToggleSemanticPhotosDialog(val show: Boolean) : GalleryEvent
 }

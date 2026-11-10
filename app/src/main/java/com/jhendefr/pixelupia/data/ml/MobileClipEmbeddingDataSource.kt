@@ -17,6 +17,7 @@ class MobileClipEmbeddingDataSource(
 ) {
 
     private val tokenizer = ClipTokenizer(context)
+    private val queryTranslator = LightweightQueryTranslator()
     private var imageInterpreter: Interpreter? = null
     private var textInterpreter: Interpreter? = null
 
@@ -52,24 +53,32 @@ class MobileClipEmbeddingDataSource(
         return Interpreter(modelBuffer, options)
     }
 
-    /**
-     * Extrae el embedding semantico de una imagen bitmap redimensionada a 224x224.
-     */
     suspend fun extractImageEmbedding(bitmap: Bitmap): Result<FloatArray> = withContext(Dispatchers.Default) {
         try {
-            val resized = Bitmap.createScaledBitmap(bitmap, imageInputSize, imageInputSize, true)
-            val intValues = IntArray(imageInputSize * imageInputSize)
-            resized.getPixels(intValues, 0, imageInputSize, 0, 0, imageInputSize, imageInputSize)
-
             val interpreter = getImageInterpreter()
             val inputShape = interpreter.getInputTensor(0).shape()
             val isNchw = inputShape.size == 4 && inputShape[1] == 3
+            val targetSize = if (isNchw) inputShape[2] else inputShape[1]
 
-            val inputBuffer = ByteBuffer.allocateDirect(1 * 3 * imageInputSize * imageInputSize * 4).apply {
+            // Recorte cuadrado centrado
+            val croppedBitmap = if (bitmap.width != bitmap.height) {
+                val size = minOf(bitmap.width, bitmap.height)
+                val x = (bitmap.width - size) / 2
+                val y = (bitmap.height - size) / 2
+                Bitmap.createBitmap(bitmap, x, y, size, size)
+            } else {
+                bitmap
+            }
+
+            val resized = Bitmap.createScaledBitmap(croppedBitmap, targetSize, targetSize, true)
+            val intValues = IntArray(targetSize * targetSize)
+            resized.getPixels(intValues, 0, targetSize, 0, 0, targetSize, targetSize)
+
+            val inputBuffer = ByteBuffer.allocateDirect(1 * 3 * targetSize * targetSize * 4).apply {
                 order(ByteOrder.nativeOrder())
             }
 
-            // Normalizacion de MobileCLIP (media y std de ImageNet)
+            // Normalizacion de MobileCLIP (media y desviacion de ImageNet)
             val meanR = 0.48145466f
             val meanG = 0.45782750f
             val meanB = 0.40821073f
@@ -78,7 +87,7 @@ class MobileClipEmbeddingDataSource(
             val stdB = 0.27577711f
 
             if (isNchw) {
-                val numPixels = imageInputSize * imageInputSize
+                val numPixels = targetSize * targetSize
                 val rChannel = FloatArray(numPixels)
                 val gChannel = FloatArray(numPixels)
                 val bChannel = FloatArray(numPixels)
@@ -88,7 +97,7 @@ class MobileClipEmbeddingDataSource(
                     val r = (pixel shr 16 and 0xFF) / 255.0f
                     val g = (pixel shr 8 and 0xFF) / 255.0f
                     val b = (pixel and 0xFF) / 255.0f
-
+                    // Normalizacion z-score
                     rChannel[i] = (r - meanR) / stdR
                     gChannel[i] = (g - meanG) / stdG
                     bChannel[i] = (b - meanB) / stdB
@@ -139,9 +148,7 @@ class MobileClipEmbeddingDataSource(
         }
     }
 
-    /**
-     * Extrae el embedding semantico
-     */
+   //Embefing semantico
     suspend fun extractTextEmbedding(query: String): Result<FloatArray> = withContext(Dispatchers.Default) {
         try {
             val tokenIds = tokenizer.tokenize(query)
@@ -182,18 +189,33 @@ class MobileClipEmbeddingDataSource(
     }
 
     /**
-     * Genera embeddings normalizados para todas las variantes linguisticas y sintacticas de una consulta.
-     * Utiliza QuerySemanticExpander para traducir y estructurar la consulta en ingles optimo para MobileCLIP.
+     * Genera embeddings normalizados para la consulta utilizando Prompt Ensembling.
+     * Calcula los embeddings de los prompts generados, los promedia en un unico vector centroide
+     * normalizado con L2, y devuelve dicho centroide junto con el prompt principal.
      */
     suspend fun extractQueryEmbeddings(query: String): List<FloatArray> = withContext(Dispatchers.Default) {
-        val prompts = QuerySemanticExpander.generateClipPrompts(query)
+        val prompts = queryTranslator.translateAndBuildClipPrompts(query)
         android.util.Log.d("MobileCLIP", "Prompts generados para consulta '$query': $prompts")
         val embeddings = mutableListOf<FloatArray>()
         for (prompt in prompts) {
             val embResult = extractTextEmbedding(prompt)
             embResult.getOrNull()?.let { embeddings.add(it) }
         }
-        embeddings
+        if (embeddings.isEmpty()) return@withContext emptyList()
+
+        val dim = embeddings.first().size
+        val centroid = FloatArray(dim)
+        for (emb in embeddings) {
+            for (i in 0 until dim) {
+                centroid[i] += emb[i]
+            }
+        }
+        for (i in 0 until dim) {
+            centroid[i] /= embeddings.size.toFloat()
+        }
+        val normalizedCentroid = l2Normalize(centroid)
+        val primaryEmb = embeddings.first()
+        listOf(normalizedCentroid, primaryEmb)
     }
 
     private fun extractTextEmbeddingSync(query: String): FloatArray? {
@@ -233,8 +255,8 @@ class MobileClipEmbeddingDataSource(
         "a photo of a car, automobile, or vehicle" to "Vehiculo",
         "a photo of a red car" to "Auto Rojo",
         "a photo of delicious food, dish, or meal" to "Comida",
-        "a photo of a dog, puppy, or pet canine" to "Perro",
-        "a photo of a cat, kitten, or pet feline" to "Gato",
+        "a photo of a dog, canine, or puppy" to "Perro",
+        "a photo of a cat, feline, or kitten" to "Gato",
         "a photo of a person or portrait" to "Persona",
         "a photo of nature, trees, and landscape" to "Naturaleza",
         "a photo of a document, paper, or text contract" to "Documento",
@@ -270,7 +292,7 @@ class MobileClipEmbeddingDataSource(
     fun predictZeroShotLabels(
         imageEmbedding: FloatArray,
         topK: Int = 4,
-        threshold: Float = 0.16f
+        threshold: Float = 0.22f
     ): List<Pair<String, Float>> {
         val concepts = getZeroShotConceptEmbeddings()
         val matches = mutableListOf<Pair<String, Float>>()
@@ -280,6 +302,21 @@ class MobileClipEmbeddingDataSource(
                 matches.add(Pair(label, sim))
             }
         }
+
+        // Exclusion mutua entre "Perro" y "Gato" si ambos superan el umbral con diferencia >= 0.02f
+        val dogMatch = matches.find { it.first == "Perro" }
+        val catMatch = matches.find { it.first == "Gato" }
+        if (dogMatch != null && catMatch != null) {
+            val diff = kotlin.math.abs(dogMatch.second - catMatch.second)
+            if (diff >= 0.02f) {
+                if (dogMatch.second > catMatch.second) {
+                    matches.remove(catMatch)
+                } else {
+                    matches.remove(dogMatch)
+                }
+            }
+        }
+
         return matches.sortedByDescending { it.second }.take(topK)
     }
 

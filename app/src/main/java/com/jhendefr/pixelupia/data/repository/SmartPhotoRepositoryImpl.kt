@@ -16,6 +16,8 @@ class SmartPhotoRepositoryImpl(
     private val mobileClipDataSource: com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource? = null
 ) : SmartPhotoRepository {
 
+    private val queryEmbeddingCache = android.util.LruCache<String, List<FloatArray>>(30)
+
     override suspend fun indexPhoto(
         photo: Photo,
         textContent: String,
@@ -56,7 +58,7 @@ class SmartPhotoRepositoryImpl(
         val sanitized = cleanQuery.replace(Regex("[^\\p{L}\\p{Nd}]+"), " ").trim()
         val tokens = sanitized.split("\\s+".toRegex()).filter { it.isNotEmpty() }
         val alternativesList = tokens.map { token ->
-            val synonyms = com.jhendefr.pixelupia.data.ml.SynonymRegistry.getSynonyms(token).take(8)
+            val synonyms = com.jhendefr.pixelupia.data.ml.SynonymRegistry.getSearchQuerySynonyms(token).take(8)
             val alternatives = (listOf(token) + synonyms).distinct()
             if (alternatives.size == 1) {
                 "${alternatives.first()}*"
@@ -89,14 +91,33 @@ class SmartPhotoRepositoryImpl(
                 return@map effectiveFtsEntities.map { toPhoto(it) }
             }
 
-            // Inferencia semantica de texto con MobileCLIP-S0 expandida bilingue
-            val queryEmbeddings = clip.extractQueryEmbeddings(cleanQuery)
+            // Inferencia semantica de texto con MobileCLIP-S0 expandida bilingue y cacheada
+            val queryEmbeddings = queryEmbeddingCache.get(cleanQuery) ?: run {
+                val generated = clip.extractQueryEmbeddings(cleanQuery)
+                if (generated.isNotEmpty()) {
+                    queryEmbeddingCache.put(cleanQuery, generated)
+                }
+                generated
+            }
             if (queryEmbeddings.isEmpty()) {
                 return@map effectiveFtsEntities.map { toPhoto(it) }
             }
 
             val allWithEmbedding = dao.getPhotosWithEmbedding()
             val semanticMatches = mutableListOf<Pair<SmartPhotoEntity, Float>>()
+
+            val queryLower = cleanQuery.lowercase(java.util.Locale.ROOT)
+            val isSearchingDog = (queryLower.contains("perro") || queryLower.contains("canino") ||
+                    queryLower.contains("cachorro") || queryLower.contains("dog") ||
+                    queryLower.contains("puppy")) &&
+                    !queryLower.contains("gato") && !queryLower.contains("cat") &&
+                    !queryLower.contains("felino") && !queryLower.contains("michi")
+
+            val isSearchingCat = (queryLower.contains("gato") || queryLower.contains("felino") ||
+                    queryLower.contains("gatito") || queryLower.contains("cat") ||
+                    queryLower.contains("kitten") || queryLower.contains("michi")) &&
+                    !queryLower.contains("perro") && !queryLower.contains("dog") &&
+                    !queryLower.contains("canino") && !queryLower.contains("cachorro")
 
             for (photoEntity in allWithEmbedding) {
                 val isExcluded = photoEntity.excludedTags.any { exc ->
@@ -114,8 +135,28 @@ class SmartPhotoRepositoryImpl(
                             maxSimilarity = similarity
                         }
                     }
-                    if (maxSimilarity >= 0.15f) {
-                        semanticMatches.add(Pair(photoEntity, maxSimilarity))
+                    if (maxSimilarity >= 0.20f) {
+                        val hasDogTag = photoEntity.labels.any { l ->
+                            val clean = if (l.contains(" - ")) l.substringBeforeLast(" - ") else l
+                            clean.contains("perro", ignoreCase = true) ||
+                            clean.contains("canino", ignoreCase = true) ||
+                            clean.contains("cachorro", ignoreCase = true) ||
+                            clean.contains("dog", ignoreCase = true)
+                        }
+                        val hasCatTag = photoEntity.labels.any { l ->
+                            val clean = if (l.contains(" - ")) l.substringBeforeLast(" - ") else l
+                            clean.contains("gato", ignoreCase = true) ||
+                            clean.contains("felino", ignoreCase = true) ||
+                            clean.contains("gatito", ignoreCase = true) ||
+                            clean.contains("cat", ignoreCase = true)
+                        }
+
+                        val isContradiction = (isSearchingDog && hasCatTag && !hasDogTag) ||
+                                              (isSearchingCat && hasDogTag && !hasCatTag)
+
+                        if (!isContradiction) {
+                            semanticMatches.add(Pair(photoEntity, maxSimilarity))
+                        }
                     }
                 } catch (e: Exception) {
                     // Ignorar errores de deserializacion individual
@@ -125,16 +166,31 @@ class SmartPhotoRepositoryImpl(
             // Ordenar por relevancia semantica
             semanticMatches.sortByDescending { it.second }
 
-            // Fusionar y desduplicar por photoId priorizando semantica
+            // Hybrid Score Fusion:
+            // 1. Fotos que coinciden tanto en effectiveFtsEntities como en semanticMatches (ordenadas por similitud)
+            // 2. Fotos de semanticMatches con similitud >= 0.20f
+            // 3. Resto de coincidencias lexicas de effectiveFtsEntities
             val seenIds = HashSet<Long>()
             val combined = mutableListOf<Photo>()
+            val ftsPhotoIds = effectiveFtsEntities.map { it.photoId }.toSet()
 
+            // 1. Fotos que coinciden tanto en effectiveFtsEntities como en semanticMatches
+            for ((entity, _) in semanticMatches) {
+                if (ftsPhotoIds.contains(entity.photoId)) {
+                    if (seenIds.add(entity.photoId)) {
+                        combined.add(toPhoto(entity))
+                    }
+                }
+            }
+
+            // 2. Fotos de semanticMatches con similitud >= 0.20f restantes
             for ((entity, _) in semanticMatches) {
                 if (seenIds.add(entity.photoId)) {
                     combined.add(toPhoto(entity))
                 }
             }
 
+            // 3. Resto de coincidencias lexicas de effectiveFtsEntities
             for (entity in effectiveFtsEntities) {
                 val isExcluded = entity.excludedTags.any { exc ->
                     cleanQuery.contains(exc, ignoreCase = true) || exc.contains(cleanQuery, ignoreCase = true)

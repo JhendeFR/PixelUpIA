@@ -14,7 +14,7 @@ import com.jhendefr.pixelupia.domain.model.Photo
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 class EnrichScreenshotUseCase(
@@ -92,18 +92,14 @@ class EnrichScreenshotUseCase(
                 Regex("""\{"text":""").findAll(json).count()
             } ?: 0
 
+            val invoiceRegex = Regex("(?i)\\b(factura|recibo|subtotal|total a pagar|nit|pago exitoso|comprobante|transferencia|iban|bs\\.?|usd)\\b")
+            val invoiceMatchCount = invoiceRegex.findAll(textContent).count()
             val hasMonetaryOrBankingEntity = entityItems.any { entity ->
                 val type = entity.type.lowercase(java.util.Locale.ROOT)
-                val text = entity.text.lowercase(java.util.Locale.ROOT)
-                type.contains("money") || type.contains("iban") || type.contains("payment") ||
-                        text.contains("tarjeta") || text.contains("iban") || text.contains("bs") || text.contains("usd")
+                type.contains("dinero") || type.contains("money") || type.contains("iban") || type.contains("tarjeta") || type.contains("payment")
             }
-
-            val hasInvoiceKeywords = listOf("factura", "recibo", "total", "subtotal", "nit", "pago", "bs", "usd", "cambio").any { kw ->
-                textContent.contains(kw, ignoreCase = true)
-            }
-
-            val isDocumentOrInvoice = ocrBlockCount > 12 || hasMonetaryOrBankingEntity || hasInvoiceKeywords
+            val hasInvoiceKeywords = (ocrBlockCount >= 4 && invoiceMatchCount >= 1) || invoiceMatchCount >= 2
+            val isDocumentOrInvoice = ocrBlockCount >= 5 || (hasMonetaryOrBankingEntity && ocrBlockCount >= 3) || hasInvoiceKeywords
 
             val isScreenshot = photo.folderName.contains("screenshot", ignoreCase = true) ||
                     photo.folderName.equals("Screenshots", ignoreCase = true) ||
@@ -150,40 +146,23 @@ class EnrichScreenshotUseCase(
             val formattedLabels = filteredLabelItems.map { it.formatted }
             val formattedEntities = entityItems.map { "${it.text} (${it.type})" }
 
-            val isPetLabelDetected = !isDocumentOrInvoice && !isScreenshot && (
-                filteredLabelItems.any { labelItem ->
-                    val lower = labelItem.text.lowercase(java.util.Locale.ROOT)
-                    lower.contains("perro") || lower.contains("gato") || lower.contains("mascota") ||
-                            lower.contains("canino") || lower.contains("felino") || lower.contains("cachorro") ||
-                            lower.contains("gatito") || lower.contains("dog") || lower.contains("cat") ||
-                            lower.contains("pet") || lower.contains("puppy") || lower.contains("kitten") ||
-                            lower.contains("canidae") || lower.contains("felidae") || lower.contains("raza canina") ||
-                            lower.contains("hound") || lower.contains("terrier") || lower.contains("retriever") ||
-                            lower.contains("bulldog") || lower.contains("shepherd") || lower.contains("siam") ||
-                            lower.contains("persa") || lower.contains("animal") || lower.contains("fauna") ||
-                            lower.contains("carnivore") || lower.contains("mammal") ||
-                            lower.contains("carnivoro") || lower.contains("mamifero") || lower.contains("vertebrado") ||
-                            lower.contains("snout") || lower.contains("hocico") || lower.contains("whiskers") ||
-                            lower.contains("bigotes") || lower.contains("fur") || lower.contains("pelaje") ||
-                            lower.contains("paw") || lower.contains("pata") || lower.contains("tail") ||
-                            lower.contains("cola") || lower.contains("ave") || lower.contains("pajaro") ||
-                            lower.contains("conejo") || lower.contains("rabbit") || lower.contains("hamster")
-                } || (
-                    facesDetailed.faces.isEmpty() && (
-                        photo.folderName.contains("mascota", ignoreCase = true) ||
-                        photo.folderName.contains("pet", ignoreCase = true) ||
-                        photo.folderName.contains("perro", ignoreCase = true) ||
-                        photo.folderName.contains("gato", ignoreCase = true) ||
-                        photo.folderName.contains("animal", ignoreCase = true) ||
-                        photo.name.contains("perro", ignoreCase = true) ||
-                        photo.name.contains("gato", ignoreCase = true) ||
-                        photo.name.contains("dog", ignoreCase = true) ||
-                        photo.name.contains("cat", ignoreCase = true) ||
-                        photo.name.contains("pet", ignoreCase = true) ||
-                        photo.name.contains("animal", ignoreCase = true)
-                    )
-                )
+            val petLabelRegex = Regex("(?i)\\b(perro|perros|gato|gatos|mascota|mascotas|canino|felino|cachorro|gatito|dog|cat|pet|puppy|kitten|canidae|felidae|raza canina|hound|terrier|retriever|bulldog|shepherd|dalmata|boxer|basset hound|ragdoll|sphynx|shikoku|cairn terrier|pajaro|conejo|rabbit|hamster|hocico|bigotes|pelaje)\\b")
+            val hasExplicitPetLabel = filteredLabelItems.any { petLabelRegex.containsMatchIn(it.text.substringBefore(" - ").trim()) }
+            val hasHighConfPetLabel = filteredLabelItems.any { petLabelRegex.containsMatchIn(it.text.substringBefore(" - ").trim()) && it.confidence >= 0.78f }
+
+            val hasFolderOrNamePet = facesDetailed.faces.isEmpty() && (
+                photo.folderName.contains("mascota", ignoreCase = true) ||
+                photo.folderName.contains("pet", ignoreCase = true) ||
+                photo.folderName.contains("perro", ignoreCase = true) ||
+                photo.folderName.contains("gato", ignoreCase = true) ||
+                photo.name.contains("perro", ignoreCase = true) ||
+                photo.name.contains("gato", ignoreCase = true) ||
+                photo.name.contains("dog", ignoreCase = true) ||
+                photo.name.contains("cat", ignoreCase = true) ||
+                photo.name.contains("pet", ignoreCase = true)
             )
+
+            val isPetLabelDetected = !isDocumentOrInvoice && !isScreenshot && (hasExplicitPetLabel || hasFolderOrNamePet)
 
             // Si se detecta mascota, limpiar posibles etiquetas residuales de insectos/artropodos
             val cleanedFinalLabels = if (isPetLabelDetected) {
@@ -223,7 +202,7 @@ class EnrichScreenshotUseCase(
 
                 if (detectedPetObjects.isNotEmpty()) {
                     detectedPetObjects
-                } else {
+                } else if (hasHighConfPetLabel && facesDetailed.faces.isEmpty()) {
                     val imgW = facesDetailed.imageWidth
                     val imgH = facesDetailed.imageHeight
                     if (imgW > 50 && imgH > 50) {
@@ -233,6 +212,8 @@ class EnrichScreenshotUseCase(
                     } else {
                         emptyList()
                     }
+                } else {
+                    emptyList()
                 }
             } else {
                 emptyList()
@@ -253,8 +234,31 @@ class EnrichScreenshotUseCase(
                 com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(context!!, photo.uri)
             } else null
 
+            // Extraccion de color dominante para objetos detectados
+            if (loadedBitmap != null && !isDocumentOrInvoice && objectsResult?.objects != null) {
+                val objImgW = if (objectsResult.imageWidth > 0) objectsResult.imageWidth else loadedBitmap.width
+                val objImgH = if (objectsResult.imageHeight > 0) objectsResult.imageHeight else loadedBitmap.height
+                val scaleX = loadedBitmap.width.toFloat() / objImgW.toFloat()
+                val scaleY = loadedBitmap.height.toFloat() / objImgH.toFloat()
+
+                for (obj in objectsResult.objects) {
+                    val scaledRect = android.graphics.Rect(
+                        (obj.box.left * scaleX).toInt().coerceIn(0, loadedBitmap.width),
+                        (obj.box.top * scaleY).toInt().coerceIn(0, loadedBitmap.height),
+                        (obj.box.right * scaleX).toInt().coerceIn(0, loadedBitmap.width),
+                        (obj.box.bottom * scaleY).toInt().coerceIn(0, loadedBitmap.height)
+                    )
+                    val dominantColor = com.jhendefr.pixelupia.data.ml.ColorAttributeExtractor.extractDominantColor(loadedBitmap, scaledRect)
+                    if (dominantColor != "desconocido" && obj.label != "Objeto detectado") {
+                        colorPairs.add("${obj.label} $dominantColor")
+                        expandedColorPairs.addAll(com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandCompound(obj.label, dominantColor))
+                    }
+                }
+            }
+
             // Extraccion de Embedding Semantico con MobileCLIP-S0 (Vision)
             val clipZeroShotLabels = mutableListOf<String>()
+            var clipPredictions: List<Pair<String, Float>> = emptyList()
             var latencyClip = 0L
             val semanticEmbeddingBase64 = if (loadedBitmap != null && mobileClipDataSource != null) {
                 var embResult: Result<FloatArray>? = null
@@ -267,7 +271,8 @@ class EnrichScreenshotUseCase(
                 }
                 val rawEmb = nonNullEmbResult.getOrNull()
                 if (rawEmb != null) {
-                    val predictions = mobileClipDataSource.predictZeroShotLabels(rawEmb, topK = 3, threshold = 0.16f)
+                    val predictions = mobileClipDataSource.predictZeroShotLabels(rawEmb, topK = 3, threshold = 0.22f)
+                    clipPredictions = predictions
                     for ((label, score) in predictions) {
                         val pct = (score * 100).toInt()
                         clipZeroShotLabels.add("$label - $pct%")
@@ -331,8 +336,26 @@ class EnrichScreenshotUseCase(
 
             Log.i("BENCHMARK_SNAPVAULT", "OCR: ${latencyOcr}ms | CLIP: ${latencyClip}ms | Cluster: ${latencyClustering}ms")
 
+            // Preservar nombres de clústeres asignados
+            val existingClusters = runCatching { smartGalleryDao.getClustersForPhoto(photo.id).first() }.getOrDefault(emptyList())
+            val clusterNames = existingClusters.map { it.name }.filter { it.isNotBlank() }
+            val userNamedClusterLabels = existingClusters.filter { it.isUserNamed }.map { it.name }.filter { it.isNotBlank() }
+
+            // Si ML Kit ya detectó claramente un perro, filtrar predicción Zero-Shot contradictoria de "Gato" (y viceversa)
+            val mlKitLabels = multimodalResult.labels
+            val hasDogFromMlKit = mlKitLabels.any { it.contains("perro", ignoreCase = true) || it.contains("canino", ignoreCase = true) || it.contains("cachorro", ignoreCase = true) || it.contains("dog", ignoreCase = true) }
+            val hasCatFromMlKit = mlKitLabels.any { it.contains("gato", ignoreCase = true) || it.contains("felino", ignoreCase = true) || it.contains("gatito", ignoreCase = true) || it.contains("cat", ignoreCase = true) }
+
+            if (hasDogFromMlKit && !hasCatFromMlKit) {
+                clipZeroShotLabels.removeAll { it.startsWith("Gato", ignoreCase = true) }
+                clipPredictions = clipPredictions.filterNot { it.first.equals("Gato", ignoreCase = true) }
+            } else if (hasCatFromMlKit && !hasDogFromMlKit) {
+                clipZeroShotLabels.removeAll { it.startsWith("Perro", ignoreCase = true) }
+                clipPredictions = clipPredictions.filterNot { it.first.equals("Perro", ignoreCase = true) }
+            }
+
             // Construir indice concatenado enriquecido con expansion de sinonimos para busqueda FTS5
-            val allLabels = (multimodalResult.labels + colorPairs + clipZeroShotLabels).distinct()
+            val allLabels = (multimodalResult.labels + colorPairs + clipZeroShotLabels + userNamedClusterLabels).distinct()
             val cleanLabels = allLabels.map {
                 if (it.contains(" - ")) it.substringBeforeLast(" - ") else it
             }
@@ -344,16 +367,26 @@ class EnrichScreenshotUseCase(
                 com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("persona") + " rostro cara"
             } else ""
 
-            val petTerms = if (isPetDetected) {
-                com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("perro") + " " +
-                com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("gato") + " mascota animal"
-            } else ""
+            val hasDogLabel = cleanLabels.any { it.contains("perro", ignoreCase = true) || it.contains("canino", ignoreCase = true) || it.contains("cachorro", ignoreCase = true) || it.contains("dog", ignoreCase = true) }
+            val hasCatLabel = cleanLabels.any { it.contains("gato", ignoreCase = true) || it.contains("felino", ignoreCase = true) || it.contains("gatito", ignoreCase = true) || it.contains("cat", ignoreCase = true) }
+
+            val petTerms = buildString {
+                if (isPetDetected) append("mascota animal ")
+                if (hasDogLabel && !hasCatLabel) {
+                    append(com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("perro"))
+                } else if (hasCatLabel && !hasDogLabel) {
+                    append(com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("gato"))
+                } else if (hasDogLabel && hasCatLabel) {
+                    append(com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("perro") + " " + com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent("gato"))
+                }
+            }.trim()
 
             val colorTerms = if (expandedColorPairs.isNotEmpty()) {
                 expandedColorPairs.distinct().joinToString(" ")
             } else ""
 
             val sourceAppTerm = existingEntity?.sourceApp ?: photo.sourceApp ?: ""
+            val clusterTerms = clusterNames.joinToString(" ")
             val barcodeTerms = if (multimodalResult.barcodes.isNotEmpty()) {
                 "QR Codigo Barcode " + multimodalResult.barcodes.joinToString(" ")
             } else ""
@@ -380,6 +413,7 @@ class EnrichScreenshotUseCase(
             val concatenatedSearchContent = buildString {
                 append(textContent)
                 if (sourceAppTerm.isNotBlank()) append(" $sourceAppTerm")
+                if (clusterTerms.isNotBlank()) append(" $clusterTerms")
                 if (faceTerms.isNotBlank()) append(" $faceTerms")
                 if (petTerms.isNotBlank()) append(" $petTerms")
                 if (expandedLabelsContent.isNotBlank()) append(" $expandedLabelsContent")
@@ -390,7 +424,12 @@ class EnrichScreenshotUseCase(
                 if (documentTerms.isNotBlank()) append(" $documentTerms")
             }.trim()
 
-            val finalMultimodalResult = multimodalResult.copy(labels = allLabels)
+            val finalMultimodalResult = multimodalResult.copy(
+                labels = allLabels,
+                hasSemanticEmbedding = semanticEmbeddingBase64 != null,
+                clipTopPredictions = clipPredictions
+            )
+
 
             // Actualizar Room con los metadatos generados y sincronizar FTS5
             smartGalleryDao.updateEnrichment(

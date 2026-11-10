@@ -99,9 +99,9 @@ object ColorAttributeExtractor {
             return "desconocido"
         }
 
-        // Descartar 10% de margen exterior para aislar el objeto del fondo
-        val marginX = (box.width() * 0.10f).toInt().coerceAtLeast(1)
-        val marginY = (box.height() * 0.10f).toInt().coerceAtLeast(1)
+        // Descartar 20% de margen exterior para aislar el objeto del fondo (calibrado en benchmark)
+        val marginX = (box.width() * 0.20f).toInt().coerceAtLeast(1)
+        val marginY = (box.height() * 0.20f).toInt().coerceAtLeast(1)
 
         val innerLeft = (box.left + marginX).coerceIn(0, bitmap.width - 1)
         val innerTop = (box.top + marginY).coerceIn(0, bitmap.height - 1)

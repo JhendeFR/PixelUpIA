@@ -94,15 +94,9 @@ object QuerySemanticExpander {
         val cleanNoAccents = removeAccents(clean)
         val prompts = linkedSetOf<String>()
 
-        // 1. Consulta original y sin tildes
-        prompts.add(clean)
-        if (cleanNoAccents != clean) {
-            prompts.add(cleanNoAccents)
-        }
-
         val words = cleanNoAccents.split(Regex("[^\\p{L}\\p{Nd}]+")).filter { it.isNotBlank() }
 
-        // 2. Deteccion de pares sintacticos [objeto] + [color] o [color] + [objeto]
+        // 1. Deteccion de pares sintacticos [objeto] + [color] o [color] + [objeto]
         var detectedColorEn: String? = null
         var detectedObjectEn: String? = null
 
@@ -117,28 +111,39 @@ object QuerySemanticExpander {
 
         if (detectedColorEn != null && detectedObjectEn != null) {
             val englishCompound = "$detectedColorEn $detectedObjectEn"
-            prompts.add(englishCompound)
             prompts.add("a photo of a $englishCompound")
             prompts.add("a $englishCompound")
             prompts.add("a photo of $englishCompound")
+            prompts.add(englishCompound)
         } else if (detectedObjectEn != null) {
-            prompts.add(detectedObjectEn)
             prompts.add("a photo of a $detectedObjectEn")
             prompts.add("a photo of $detectedObjectEn")
+            prompts.add(detectedObjectEn)
         } else if (detectedColorEn != null) {
-            prompts.add(detectedColorEn)
             prompts.add("a photo of something $detectedColorEn")
+            prompts.add(detectedColorEn)
         }
 
-        // 3. Traduccion palabra por palabra directa si hay multiples palabras
+        // 2. Traduccion palabra por palabra directa si hay multiples palabras
         if (words.size > 1) {
+            var anyWordTranslated = false
             val translatedWords = words.map { word ->
-                colorMap[word] ?: objectMap[word] ?: word
+                val trans = colorMap[word] ?: objectMap[word]
+                if (trans != null) anyWordTranslated = true
+                trans ?: word
             }
-            val joined = translatedWords.joinToString(" ")
-            if (joined != clean && joined != cleanNoAccents) {
-                prompts.add(joined)
+            if (anyWordTranslated) {
+                val joined = translatedWords.joinToString(" ")
                 prompts.add("a photo of $joined")
+                prompts.add(joined)
+            }
+        }
+
+        // 3. Solo si el conjunto de prompts en ingles quedo vacio, usar la consulta cruda como fallback
+        if (prompts.isEmpty()) {
+            prompts.add(clean)
+            if (cleanNoAccents != clean) {
+                prompts.add(cleanNoAccents)
             }
         }
 

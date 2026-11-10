@@ -43,7 +43,9 @@ class MultimodalEnrichmentWorker(
         val faceClusteringService = com.jhendefr.pixelupia.data.ml.FaceClusteringService(
             faceEmbeddingDataSource = faceEmbeddingDataSource,
             petEmbeddingDataSource = petEmbeddingDataSource,
-            smartGalleryDao = dao
+            smartGalleryDao = dao,
+            faceDetectionDataSource = faceDetectionDataSource,
+            objectDetectionDataSource = objectDetectionDataSource
         )
 
         val mobileClipDataSource = com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource(applicationContext)

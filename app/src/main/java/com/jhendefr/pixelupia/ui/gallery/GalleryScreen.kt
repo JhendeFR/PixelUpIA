@@ -220,18 +220,7 @@ fun GalleryScreen(
         )
     }
 
-    if (uiState.showSemanticPhotosDialog) {
-        com.jhendefr.pixelupia.ui.gallery.components.SemanticVectorPhotosDialog(
-            photos = uiState.semanticPhotos,
-            onPhotoClick = { smartPhoto ->
-                val matchingPhoto = uiState.photos.firstOrNull { it.id == smartPhoto.photoId }
-                if (matchingPhoto != null) {
-                    onPhotoClick(matchingPhoto, true, null)
-                }
-            },
-            onDismiss = { viewModel.onEvent(GalleryEvent.ToggleSemanticPhotosDialog(false)) }
-        )
-    }
+
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
@@ -499,7 +488,7 @@ fun GalleryScreen(
                                 onTriggerFolderEnrichment = { viewModel.onEvent(GalleryEvent.TriggerFolderMultimodalEnrichment(it)) },
                                 onPhotoClick = { photo, collectionId -> onPhotoClick(photo, true, collectionId) },
                                 onToggleSelection = { viewModel.onEvent(GalleryEvent.TogglePhotoSelection(it)) },
-                                onToggleSemanticPhotosDialog = { viewModel.onEvent(GalleryEvent.ToggleSemanticPhotosDialog(it)) },
+                                onClearAllInferences = { viewModel.onEvent(GalleryEvent.ClearAllInferences) },
                                 showAddPhotosToCollectionDialog = uiState.showAddPhotosToCollectionDialog,
                                 onToggleAddPhotosToCollectionDialog = { viewModel.onEvent(GalleryEvent.ToggleAddPhotosToCollectionDialog(it)) },
                                 onAddPhotoToSmartCollection = { col, photo -> viewModel.onEvent(GalleryEvent.AddPhotoToSmartCollection(col, photo)) }

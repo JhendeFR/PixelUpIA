@@ -7,11 +7,13 @@ import com.jhendefr.pixelupia.domain.model.MediaOperationResult
 import com.jhendefr.pixelupia.domain.model.Photo
 import com.jhendefr.pixelupia.domain.usecase.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class GalleryViewModel(
     private val getPhotosUseCase: GetPhotosUseCase,
     private val getAlbumsUseCase: GetAlbumsUseCase,
@@ -49,6 +51,7 @@ class GalleryViewModel(
     private var cachedAllVisualCollections: List<SmartCollectionItem> = emptyList()
     private var indexedFoldersJob: Job? = null
     private var clusterPhotosJob: Job? = null
+    private var smartCollectionsJob: Job? = null
 
     init {
         loadData()
@@ -92,6 +95,8 @@ class GalleryViewModel(
     private fun observeSmartPhotos() {
         viewModelScope.launch {
             _searchQueryFlow
+                .debounce(280L)
+                .distinctUntilChanged()
                 .flatMapLatest { query ->
                     searchSmartPhotosUseCase(query)
                 }
@@ -155,7 +160,8 @@ class GalleryViewModel(
     }
 
     private fun observeSmartCollections(photos: List<Photo>) {
-        viewModelScope.launch {
+        smartCollectionsJob?.cancel()
+        smartCollectionsJob = viewModelScope.launch {
             getSmartCollectionsUseCase(photos)
                 .catch { error ->
                     _uiState.update { it.copy(errorMessage = error.message) }
@@ -233,6 +239,9 @@ class GalleryViewModel(
                     generateSmartMemories()
                 }
             }
+            GalleryEvent.RebuildAllClustersAndReEnrich -> {
+                rebuildAllClustersAndReEnrich()
+            }
             is GalleryEvent.TogglePhotoSelection -> {
                 val currentSelection = _uiState.value.selectedPhotoIds.toMutableSet()
                 if (currentSelection.contains(event.photoId)) {
@@ -296,11 +305,7 @@ class GalleryViewModel(
             is GalleryEvent.AddPhotoToFaceCluster -> {
                 viewModelScope.launch {
                     val bitmap = context?.let { ctx ->
-                        runCatching {
-                            ctx.contentResolver.openInputStream(event.photo.uri)?.use { stream ->
-                                android.graphics.BitmapFactory.decodeStream(stream)
-                            }
-                        }.getOrNull()
+                        com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(ctx, event.photo.uri)
                     }
                     manageFaceClusterUseCase?.addPhotoToCluster(event.photo, event.clusterId, bitmap)
                     _uiState.update { it.copy(userMessage = "Foto agregada al grupo") }
@@ -316,11 +321,7 @@ class GalleryViewModel(
                     val photo = _uiState.value.photos.find { it.id == event.photoId }
                     val bitmap = photo?.let { p ->
                         context?.let { ctx ->
-                            runCatching {
-                                ctx.contentResolver.openInputStream(p.uri)?.use { stream ->
-                                    android.graphics.BitmapFactory.decodeStream(stream)
-                                }
-                            }.getOrNull()
+                            com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(ctx, p.uri)
                         }
                     }
                     manageFaceClusterUseCase?.removePhotoFromCluster(event.photoId, event.clusterId, bitmap)
@@ -330,11 +331,7 @@ class GalleryViewModel(
             is GalleryEvent.SetClusterCover -> {
                 viewModelScope.launch {
                     val bitmap = context?.let { ctx ->
-                        runCatching {
-                            ctx.contentResolver.openInputStream(event.photo.uri)?.use { stream ->
-                                android.graphics.BitmapFactory.decodeStream(stream)
-                            }
-                        }.getOrNull()
+                        com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(ctx, event.photo.uri)
                     }
                     manageFaceClusterUseCase?.setClusterCover(event.clusterId, event.photo, bitmap)
                     _uiState.update { state ->
@@ -813,6 +810,9 @@ class GalleryViewModel(
             is GalleryEvent.ToggleSemanticPhotosDialog -> {
                 _uiState.update { it.copy(showSemanticPhotosDialog = event.show) }
             }
+            GalleryEvent.ClearAllInferences -> {
+                clearAllInferences()
+            }
         }
     }
 
@@ -864,6 +864,49 @@ class GalleryViewModel(
         viewModelScope.launch {
             getFaceClustersUseCase().collect { clusters ->
                 _uiState.update { it.copy(faceClusters = clusters) }
+            }
+        }
+    }
+
+    fun rebuildAllClustersAndReEnrich() {
+        viewModelScope.launch {
+            manageFaceClusterUseCase?.rebuildAllClustersFromScratch()
+                ?: smartGalleryDao?.let { dao ->
+                    dao.clearAllPhotoClusterCrossRefs()
+                    dao.clearAllFaceClusters()
+                    dao.markAllPhotosForReEnrichment()
+                }
+            context?.let { ctx ->
+                com.jhendefr.pixelupia.data.worker.WorkManagerScheduler.triggerOneTimeEnrichment(ctx)
+            }
+            _uiState.update { it.copy(userMessage = "Re-indexado y clustering reiniciado") }
+        }
+    }
+
+    fun clearAllInferences() {
+        viewModelScope.launch(Dispatchers.IO) {
+            smartGalleryDao?.let { dao ->
+                dao.clearAllSmartPhotos()
+                dao.clearAllSmartPhotosFts()
+                dao.clearAllPhotoClusterCrossRefs()
+                dao.clearAllFaceClusters()
+                dao.clearAllStories()
+            }
+            context?.let { ctx ->
+                androidx.work.WorkManager.getInstance(ctx).cancelAllWork()
+            }
+            _uiState.update {
+                it.copy(
+                    smartPhotos = emptyList(),
+                    faceClusters = emptyList(),
+                    memoryStories = emptyList(),
+                    semanticPhotos = emptyList(),
+                    smartSearchQuery = "",
+                    userMessage = "Se han limpiado todas las inferencias y datos de la base de datos"
+                )
+            }
+            if (_uiState.value.photos.isNotEmpty()) {
+                observeIndexedFolders(_uiState.value.photos, _uiState.value.chosenIndexFolders)
             }
         }
     }

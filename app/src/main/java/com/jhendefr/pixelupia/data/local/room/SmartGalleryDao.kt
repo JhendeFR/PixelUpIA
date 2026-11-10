@@ -40,12 +40,7 @@ interface SmartGalleryDao {
     """)
     suspend fun searchPhotosByTextList(query: String): List<SmartPhotoEntity>
 
-    @Query("""
-        SELECT * FROM smart_photos 
-        WHERE isEnriched = 0 
-        AND (folderName LIKE '%screenshot%' OR folderName = 'Screenshots')
-        ORDER BY dateAdded DESC
-    """)
+    @Query("SELECT * FROM smart_photos WHERE isEnriched = 0 ORDER BY dateAdded DESC")
     suspend fun getUnenrichedScreenshots(): List<SmartPhotoEntity>
 
     @Query("""
@@ -179,6 +174,21 @@ interface SmartGalleryDao {
 
     @Query("DELETE FROM photo_cluster_cross_ref WHERE clusterId = :clusterId")
     suspend fun deleteCrossRefsForCluster(clusterId: Long): Int
+
+    @Query("DELETE FROM photo_cluster_cross_ref")
+    suspend fun clearAllPhotoClusterCrossRefs(): Int
+
+    @Query("DELETE FROM face_clusters")
+    suspend fun clearAllFaceClusters(): Int
+
+    @Query("DELETE FROM smart_photos")
+    suspend fun clearAllSmartPhotos(): Int
+
+    @Query("DELETE FROM smart_photos_fts")
+    suspend fun clearAllSmartPhotosFts(): Int
+
+    @Query("UPDATE smart_photos SET isEnriched = 0")
+    suspend fun markAllPhotosForReEnrichment(): Int
 
     @Query("SELECT * FROM photo_cluster_cross_ref WHERE photoId = :photoId AND clusterId = :clusterId")
     suspend fun getCrossRef(photoId: Long, clusterId: Long): PhotoClusterCrossRefEntity?

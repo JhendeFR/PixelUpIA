@@ -57,7 +57,7 @@ fun SmartGalleryView(
     showFolderManagerDialog: Boolean = false,
     showIndexedCount: Boolean = true,
     allDeviceFolders: List<String> = emptyList(),
-    chosenIndexFolders: Set<String> = setOf("Screenshots"),
+    chosenIndexFolders: Set<String> = emptySet(),
     isBatchIndexing: Boolean,
     batchIndexingProgress: Pair<Int, Int>?,
     activeIndexingFolder: String? = null,
@@ -116,7 +116,8 @@ fun SmartGalleryView(
     onTriggerFolderEnrichment: (String) -> Unit = {},
     onPhotoClick: (Photo, String?) -> Unit,
     onToggleSelection: (Long) -> Unit,
-    onToggleSemanticPhotosDialog: (Boolean) -> Unit = {}
+    onToggleSemanticPhotosDialog: (Boolean) -> Unit = {},
+    onClearAllInferences: () -> Unit = {}
 ) {
     if (showMomentsCollageView) {
         com.jhendefr.pixelupia.ui.gallery.components.MomentsCollageScreen(
@@ -132,6 +133,47 @@ fun SmartGalleryView(
     var showSmartOptionsMenu by remember { mutableStateOf(false) }
     var showClusterMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var showClearInferencesConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showClearInferencesConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearInferencesConfirmDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.DeleteForever,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text("¿Limpiar todas las inferencias?")
+            },
+            text = {
+                Text(
+                    "Esta acción eliminará todos los datos generados por los modelos de Inteligencia Artificial " +
+                    "(reconocimiento de texto OCR, etiquetas, agrupaciones de personas y mascotas, y vectores semánticos MobileCLIP) " +
+                    "de la base de datos local. Las fotos originales de tu teléfono no serán modificadas ni eliminadas."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearInferencesConfirmDialog = false
+                        onClearAllInferences()
+                    }
+                ) {
+                    Text("Limpiar todo", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showClearInferencesConfirmDialog = false }
+                ) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 
     // Dialogo de Colecciones Ocultas
     if (showHiddenCollectionsDialog) {
@@ -727,17 +769,18 @@ fun SmartGalleryView(
                                 )
                                 DropdownMenuItem(
                                     text = {
-                                        Text("Vectores Semanticos (MobileCLIP)")
+                                        Text("Limpiar inferencias", color = MaterialTheme.colorScheme.error)
                                     },
                                     leadingIcon = {
                                         Icon(
-                                            imageVector = Icons.Default.AutoAwesome,
-                                            contentDescription = null
+                                            imageVector = Icons.Default.DeleteSweep,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
                                         )
                                     },
                                     onClick = {
                                         showSmartOptionsMenu = false
-                                        onToggleSemanticPhotosDialog(true)
+                                        showClearInferencesConfirmDialog = true
                                     }
                                 )
                             }

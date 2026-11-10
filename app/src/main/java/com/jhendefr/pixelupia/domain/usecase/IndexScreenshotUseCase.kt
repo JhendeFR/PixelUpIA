@@ -11,15 +11,11 @@ class IndexScreenshotUseCase(
     suspend operator fun invoke(photo: Photo): Result<Unit> {
         return try {
             val ocrResult = ocrDataSource.processImage(photo.uri)
-            if (ocrResult.text.isNotBlank()) {
-                smartPhotoRepository.indexPhoto(
-                    photo = photo,
-                    textContent = ocrResult.text,
-                    boundingBoxes = ocrResult.boundingBoxesJson
-                )
-            } else {
-                Result.success(Unit)
-            }
+            smartPhotoRepository.indexPhoto(
+                photo = photo,
+                textContent = ocrResult.text,
+                boundingBoxes = ocrResult.boundingBoxesJson
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }

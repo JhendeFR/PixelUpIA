@@ -89,7 +89,7 @@ class EntityExtractionDataSource {
         suspendCancellableCoroutine { continuation ->
             entityExtractor.annotate(params)
                 .addOnSuccessListener { annotations ->
-                    val result = annotations.flatMapIndexed { aIdx, annotation ->
+                    val mlKitEntities = annotations.flatMapIndexed { aIdx, annotation ->
                         val annotatedText = annotation.annotatedText.trim()
                         annotation.entities
                             .filter { it.type != Entity.TYPE_DATE_TIME }
@@ -114,11 +114,19 @@ class EntityExtractionDataSource {
                                 } else null
                             }
                     }
-                    if (result.isEmpty()) {
-                        continuation.resume(extractEntitiesRegexFallback(text))
-                    } else {
-                        continuation.resume(result)
+
+                    // Fusión sin duplicados: combinar ML Kit con Regex especializado de Bolivia
+                    val regexEntities = extractEntitiesRegexFallback(text)
+                    val existingNormalized = mlKitEntities.map { it.text.trim().lowercase(java.util.Locale.ROOT) }.toSet()
+                    val nonDuplicateRegex = regexEntities.filterNot { reg ->
+                        val regText = reg.text.trim().lowercase(java.util.Locale.ROOT)
+                        existingNormalized.any { it.contains(regText) || regText.contains(it) }
                     }
+
+                    val merged = (mlKitEntities + nonDuplicateRegex).mapIndexed { idx, item ->
+                        item.copy(id = "entity_$idx")
+                    }
+                    continuation.resume(merged)
                 }
                 .addOnFailureListener {
                     continuation.resume(extractEntitiesRegexFallback(text))
@@ -128,20 +136,44 @@ class EntityExtractionDataSource {
 
     private fun extractEntitiesRegexFallback(text: String): List<ExtractedEntityItem> {
         val list = mutableListOf<ExtractedEntityItem>()
-        val urlRegex = Regex("""https?://[^\s]+|www\.[^\s]+""")
-        urlRegex.findAll(text).forEachIndexed { idx, match ->
-            list.add(ExtractedEntityItem(id = "fallback_url_$idx", text = match.value, type = "URL"))
+
+        // 1. Dinero (Bs, BOB, $us) adaptado a Bolivia
+        val moneyRegex = Regex("""(?:Bs\.?|BOB|\${'$'}us)\s*\d+(?:[.,]\d+)*|\d+(?:[.,]\d+)*\s*(?:Bs\.?|BOB)""", RegexOption.IGNORE_CASE)
+        moneyRegex.findAll(text).forEachIndexed { idx, match ->
+            list.add(ExtractedEntityItem(id = "fallback_money_$idx", text = match.value.trim(), type = "Dinero"))
         }
-        val emailRegex = Regex("""[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}""")
-        emailRegex.findAll(text).forEachIndexed { idx, match ->
-            list.add(ExtractedEntityItem(id = "fallback_email_$idx", text = match.value, type = "Email"))
+
+        // 2. Seguimiento (Nro. de transacción / referencia / autorización)
+        val trackingRegex = Regex("""(?:transacci[oó]n|referencia|autorizaci[oó]n)[:\sN°º]*([0-9]{6,22})""", RegexOption.IGNORE_CASE)
+        trackingRegex.findAll(text).forEachIndexed { idx, match ->
+            val refNumber = match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: match.value.trim()
+            list.add(ExtractedEntityItem(id = "fallback_tracking_$idx", text = refNumber.trim(), type = "Seguimiento"))
         }
-        val phoneRegex = Regex("""(\+?\d{1,3}[- ]?)?\(?\d{2,4}\)?[- ]?\d{3,4}[- ]?\d{3,4}""")
+
+        // 3. Teléfono (Celulares de 8 dígitos 6/7xxxxxxx, fijos 4-64xxxxx y +591)
+        val phoneRegex = Regex("""(?:\(\+?591\)|\+591)?\s*(?:\(?\d{1,2}\)?[-\s]?)?\b(?:[67]\d{7}|\d{2}[-\s]\d{5})\b""")
         phoneRegex.findAll(text).forEachIndexed { idx, match ->
-            if (match.value.trim().length >= 7) {
-                list.add(ExtractedEntityItem(id = "fallback_phone_$idx", text = match.value.trim(), type = "Telefono"))
+            val phone = match.value.trim()
+            if (phone.length >= 7) {
+                list.add(ExtractedEntityItem(id = "fallback_phone_$idx", text = phone, type = "Telefono"))
             }
         }
+
+        // 4. URLs (incluyendo dominios .bo sin http)
+        val urlRegex = Regex("""(?:https?://|www\.)[^\s]+|\b[a-zA-Z0-9.-]+\.(?:bo|com|org|net)(?:/[^\s]*)?""")
+        urlRegex.findAll(text).forEachIndexed { idx, match ->
+            val url = match.value.trim()
+            if (!url.contains("@") && url.length >= 4) {
+                list.add(ExtractedEntityItem(id = "fallback_url_$idx", text = url, type = "URL"))
+            }
+        }
+
+        // 5. Emails
+        val emailRegex = Regex("""[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}""")
+        emailRegex.findAll(text).forEachIndexed { idx, match ->
+            list.add(ExtractedEntityItem(id = "fallback_email_$idx", text = match.value.trim(), type = "Email"))
+        }
+
         return list
     }
 }

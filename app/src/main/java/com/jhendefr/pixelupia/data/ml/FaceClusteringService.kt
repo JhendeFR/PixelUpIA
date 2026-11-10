@@ -13,12 +13,24 @@ import kotlinx.coroutines.withContext
 class FaceClusteringService(
     private val faceEmbeddingDataSource: FaceEmbeddingDataSource,
     private val petEmbeddingDataSource: PetEmbeddingDataSource,
-    private val smartGalleryDao: SmartGalleryDao
+    private val smartGalleryDao: SmartGalleryDao,
+    private val faceDetectionDataSource: FaceDetectionDataSource? = null,
+    private val objectDetectionDataSource: ObjectDetectionDataSource? = null
 ) {
 
     companion object {
-        const val FACE_THRESHOLD = 0.65f
-        const val PET_THRESHOLD = 0.75f
+        const val HUMAN_FACE_CLUSTER_THRESHOLD = 0.65f
+        const val PET_CLUSTER_THRESHOLD = 0.72f
+
+        // Retrocompatibilidad
+        const val FACE_THRESHOLD = HUMAN_FACE_CLUSTER_THRESHOLD
+        const val PET_THRESHOLD = PET_CLUSTER_THRESHOLD
+    }
+
+    suspend fun rebuildAllClustersFromScratch() = withContext(Dispatchers.IO) {
+        smartGalleryDao.clearAllPhotoClusterCrossRefs()
+        smartGalleryDao.clearAllFaceClusters()
+        smartGalleryDao.markAllPhotosForReEnrichment()
     }
 
     suspend fun clusterPhotoFacesAndPets(
@@ -29,9 +41,9 @@ class FaceClusteringService(
     ) = withContext(Dispatchers.Default) {
         val excludedClusterIds = smartGalleryDao.getExcludedClusterIdsForPhoto(photo.id).toSet()
 
-        // 1. Agrupamiento de Rostros Humanos (FaceNet 512D con alineacion afin)
+        // 1. Agrupamiento de Rostros Humanos
         if (detectedFaces.isNotEmpty()) {
-            val humanClusters = smartGalleryDao.getClustersByType(isPet = false).first()
+            val humanClusters = smartGalleryDao.getClustersByType(isPet = false).first().toMutableList()
             for (face in detectedFaces) {
                 val embeddingResult = faceEmbeddingDataSource.extractEmbedding(
                     sourceBitmap = bitmap,
@@ -49,7 +61,7 @@ class FaceClusteringService(
                     isPet = false,
                     existingClusters = humanClusters,
                     excludedClusterIds = excludedClusterIds,
-                    threshold = FACE_THRESHOLD,
+                    threshold = HUMAN_FACE_CLUSTER_THRESHOLD,
                     defaultNamePrefix = "Persona"
                 )
             }
@@ -57,7 +69,7 @@ class FaceClusteringService(
 
         // 2. Agrupamiento de Mascotas (MobileNetV3 1280D)
         if (petBoundingBoxes.isNotEmpty()) {
-            val petClusters = smartGalleryDao.getClustersByType(isPet = true).first()
+            val petClusters = smartGalleryDao.getClustersByType(isPet = true).first().toMutableList()
             for (box in petBoundingBoxes) {
                 val embeddingResult = petEmbeddingDataSource.extractEmbedding(
                     sourceBitmap = bitmap,
@@ -73,7 +85,7 @@ class FaceClusteringService(
                     isPet = true,
                     existingClusters = petClusters,
                     excludedClusterIds = excludedClusterIds,
-                    threshold = PET_THRESHOLD,
+                    threshold = PET_CLUSTER_THRESHOLD,
                     defaultNamePrefix = "Mascota"
                 )
             }
@@ -86,7 +98,7 @@ class FaceClusteringService(
         box: Rect,
         embedding: FloatArray,
         isPet: Boolean,
-        existingClusters: List<FaceClusterEntity>,
+        existingClusters: MutableList<FaceClusterEntity>,
         excludedClusterIds: Set<Long>,
         threshold: Float,
         defaultNamePrefix: String
@@ -117,7 +129,7 @@ class FaceClusteringService(
                 )
             )
 
-            // Actualizacion incremental del centroide solo si la foto es nueva en el cluster
+            // Actualizacion incremental del centroide
             val centroidString = if (!alreadyInCluster) {
                 val currentCentroid = FaceEmbeddingDataSource.stringToVector(bestCluster.centroidVector)
                 val newCentroid = FaceEmbeddingDataSource.updateCentroidIncremental(currentCentroid, embedding)
@@ -126,25 +138,38 @@ class FaceClusteringService(
                 bestCluster.centroidVector
             }
 
-            // Regenerar y optimizar el recorte local centrado para el avatar si hace falta
-            val savedCrop = if (isPet) {
-                petEmbeddingDataSource.savePetCrop(bitmap, box, bestCluster.clusterId)
-            } else {
-                faceEmbeddingDataSource.saveFaceCrop(bitmap, box, bestCluster.clusterId)
-            }
-            val newCoverUri = if (savedCrop.isNotBlank()) savedCrop else bestCluster.coverUri
+            // No sobrescribir coverUri
+            val hasValidCrop = if (bestCluster.coverUri.contains("cluster_crops")) {
+                val path = bestCluster.coverUri.removePrefix("file://")
+                java.io.File(path).exists()
+            } else false
 
-            // Usar conteo real de fotos unicas vinculadas al cluster para evitar sobreconteo al reanalizar
+            val newCoverUri = if (hasValidCrop) {
+                bestCluster.coverUri
+            } else {
+                val savedCrop = if (isPet) {
+                    petEmbeddingDataSource.savePetCrop(bitmap, box, bestCluster.clusterId)
+                } else {
+                    faceEmbeddingDataSource.saveFaceCrop(bitmap, box, bestCluster.clusterId)
+                }
+                if (savedCrop.isNotBlank()) savedCrop else bestCluster.coverUri
+            }
+
+            // Conteo de fotos del grupo
             val realPhotoCount = smartGalleryDao.getClusterPhotoCount(bestCluster.clusterId)
 
-            smartGalleryDao.updateCluster(
-                bestCluster.copy(
-                    centroidVector = centroidString,
-                    coverUri = newCoverUri,
-                    photoCount = realPhotoCount,
-                    updatedAt = System.currentTimeMillis()
-                )
+            val updatedCluster = bestCluster.copy(
+                centroidVector = centroidString,
+                coverUri = newCoverUri,
+                photoCount = realPhotoCount,
+                updatedAt = System.currentTimeMillis()
             )
+            smartGalleryDao.updateCluster(updatedCluster)
+
+            val idx = existingClusters.indexOfFirst { it.clusterId == bestCluster.clusterId }
+            if (idx != -1) {
+                existingClusters[idx] = updatedCluster
+            }
         } else {
             // Crear un nuevo cluster
             val clusterCount = existingClusters.size + 1
@@ -182,17 +207,17 @@ class FaceClusteringService(
 
             val realCount = smartGalleryDao.getClusterPhotoCount(newClusterId).coerceAtLeast(1)
 
-            smartGalleryDao.updateCluster(
-                tempCluster.copy(
-                    clusterId = newClusterId,
-                    coverUri = finalCoverUri,
-                    photoCount = realCount
-                )
+            val newCluster = tempCluster.copy(
+                clusterId = newClusterId,
+                coverUri = finalCoverUri,
+                photoCount = realCount
             )
+            smartGalleryDao.updateCluster(newCluster)
+            existingClusters.add(newCluster)
         }
     }
 
-    // Aprendizaje Activo: Agregar manualmente foto a un cluster
+    // Agregar manualmente foto a un cluster
     suspend fun addPhotoToClusterManually(
         photo: Photo,
         clusterId: Long,
@@ -210,12 +235,60 @@ class FaceClusteringService(
         )
 
         if (bitmap != null) {
-            val embeddingResult = if (cluster.isPet) {
-                petEmbeddingDataSource.extractEmbedding(bitmap)
+            val embedding = if (cluster.isPet) {
+                val objectsResult = objectDetectionDataSource?.detectObjects(photo.uri)
+                val petBox = objectsResult?.objects?.filter { obj ->
+                    obj.label.contains("perro", ignoreCase = true) ||
+                    obj.label.contains("gato", ignoreCase = true) ||
+                    obj.label.contains("mascota", ignoreCase = true) ||
+                    obj.label.contains("animal", ignoreCase = true) ||
+                    obj.label.contains("dog", ignoreCase = true) ||
+                    obj.label.contains("cat", ignoreCase = true) ||
+                    obj.label.contains("pet", ignoreCase = true)
+                }?.maxByOrNull { it.box.width() * it.box.height() }?.box
+
+                val scaledBox = if (petBox != null) {
+                    val imgW = if (objectsResult.imageWidth > 0) objectsResult.imageWidth else bitmap.width
+                    val imgH = if (objectsResult.imageHeight > 0) objectsResult.imageHeight else bitmap.height
+                    val scaleX = bitmap.width.toFloat() / imgW.toFloat()
+                    val scaleY = bitmap.height.toFloat() / imgH.toFloat()
+                    Rect(
+                        (petBox.left * scaleX).toInt().coerceIn(0, bitmap.width),
+                        (petBox.top * scaleY).toInt().coerceIn(0, bitmap.height),
+                        (petBox.right * scaleX).toInt().coerceIn(0, bitmap.width),
+                        (petBox.bottom * scaleY).toInt().coerceIn(0, bitmap.height)
+                    )
+                } else null
+
+                if (scaledBox != null) {
+                    petEmbeddingDataSource.extractEmbedding(bitmap, scaledBox).getOrNull()
+                } else null
             } else {
-                faceEmbeddingDataSource.extractEmbedding(bitmap)
+                val facesDetailed = faceDetectionDataSource?.detectFacesDetailed(photo.uri)
+                val targetFace = facesDetailed?.faces?.maxByOrNull { it.box.width() * it.box.height() }
+                if (targetFace != null) {
+                    val imgW = if (facesDetailed.imageWidth > 0) facesDetailed.imageWidth else bitmap.width
+                    val imgH = if (facesDetailed.imageHeight > 0) facesDetailed.imageHeight else bitmap.height
+                    val scaleX = bitmap.width.toFloat() / imgW.toFloat()
+                    val scaleY = bitmap.height.toFloat() / imgH.toFloat()
+
+                    val scaledBox = Rect(
+                        (targetFace.box.left * scaleX).toInt().coerceIn(0, bitmap.width),
+                        (targetFace.box.top * scaleY).toInt().coerceIn(0, bitmap.height),
+                        (targetFace.box.right * scaleX).toInt().coerceIn(0, bitmap.width),
+                        (targetFace.box.bottom * scaleY).toInt().coerceIn(0, bitmap.height)
+                    )
+                    val scaledLeftEye = targetFace.leftEye?.let { android.graphics.PointF(it.x * scaleX, it.y * scaleY) }
+                    val scaledRightEye = targetFace.rightEye?.let { android.graphics.PointF(it.x * scaleX, it.y * scaleY) }
+
+                    faceEmbeddingDataSource.extractEmbedding(
+                        sourceBitmap = bitmap,
+                        boundingBox = scaledBox,
+                        leftEye = scaledLeftEye,
+                        rightEye = scaledRightEye
+                    ).getOrNull()
+                } else null
             }
-            val embedding = embeddingResult.getOrNull()
 
             if (embedding != null) {
                 val currentCentroid = FaceEmbeddingDataSource.stringToVector(cluster.centroidVector)
@@ -240,7 +313,7 @@ class FaceClusteringService(
         }
     }
 
-    // Aprendizaje Activo: Remover foto de un cluster (retroalimentacion negativa)
+    // Remover foto de un cluster (retroalimentacion negativa)
     suspend fun removePhotoFromCluster(
         photoId: Long,
         clusterId: Long,
@@ -257,7 +330,7 @@ class FaceClusteringService(
             )
         )
 
-        // Actualizar portada si la foto removida era la portada
+        // Actualizar portada
         val remainingPhotos = smartGalleryDao.getPhotosForCluster(clusterId).first().filter { it.photoId != photoId }
         val newCover = if (remainingPhotos.isNotEmpty()) {
             remainingPhotos[0].uri
@@ -266,12 +339,65 @@ class FaceClusteringService(
         }
 
         if (bitmap != null) {
-            val embeddingResult = if (cluster.isPet) {
-                petEmbeddingDataSource.extractEmbedding(bitmap)
-            } else {
-                faceEmbeddingDataSource.extractEmbedding(bitmap)
-            }
-            val embedding = embeddingResult.getOrNull()
+            val photoEntityForUri = smartGalleryDao.getPhotoById(photoId)
+            val uri = photoEntityForUri?.let { android.net.Uri.parse(it.uri) }
+
+            val embedding = if (uri != null) {
+                if (cluster.isPet) {
+                    val objectsResult = objectDetectionDataSource?.detectObjects(uri)
+                    val petBox = objectsResult?.objects?.filter { obj ->
+                        obj.label.contains("perro", ignoreCase = true) ||
+                        obj.label.contains("gato", ignoreCase = true) ||
+                        obj.label.contains("mascota", ignoreCase = true) ||
+                        obj.label.contains("animal", ignoreCase = true) ||
+                        obj.label.contains("dog", ignoreCase = true) ||
+                        obj.label.contains("cat", ignoreCase = true) ||
+                        obj.label.contains("pet", ignoreCase = true)
+                    }?.maxByOrNull { it.box.width() * it.box.height() }?.box
+
+                    val scaledBox = if (petBox != null) {
+                        val imgW = if (objectsResult.imageWidth > 0) objectsResult.imageWidth else bitmap.width
+                        val imgH = if (objectsResult.imageHeight > 0) objectsResult.imageHeight else bitmap.height
+                        val scaleX = bitmap.width.toFloat() / imgW.toFloat()
+                        val scaleY = bitmap.height.toFloat() / imgH.toFloat()
+                        Rect(
+                            (petBox.left * scaleX).toInt().coerceIn(0, bitmap.width),
+                            (petBox.top * scaleY).toInt().coerceIn(0, bitmap.height),
+                            (petBox.right * scaleX).toInt().coerceIn(0, bitmap.width),
+                            (petBox.bottom * scaleY).toInt().coerceIn(0, bitmap.height)
+                        )
+                    } else null
+
+                    if (scaledBox != null) {
+                        petEmbeddingDataSource.extractEmbedding(bitmap, scaledBox).getOrNull()
+                    } else null
+                } else {
+                    val facesDetailed = faceDetectionDataSource?.detectFacesDetailed(uri)
+                    val targetFace = facesDetailed?.faces?.maxByOrNull { it.box.width() * it.box.height() }
+                    if (targetFace != null) {
+                        val imgW = if (facesDetailed.imageWidth > 0) facesDetailed.imageWidth else bitmap.width
+                        val imgH = if (facesDetailed.imageHeight > 0) facesDetailed.imageHeight else bitmap.height
+                        val scaleX = bitmap.width.toFloat() / imgW.toFloat()
+                        val scaleY = bitmap.height.toFloat() / imgH.toFloat()
+
+                        val scaledBox = Rect(
+                            (targetFace.box.left * scaleX).toInt().coerceIn(0, bitmap.width),
+                            (targetFace.box.top * scaleY).toInt().coerceIn(0, bitmap.height),
+                            (targetFace.box.right * scaleX).toInt().coerceIn(0, bitmap.width),
+                            (targetFace.box.bottom * scaleY).toInt().coerceIn(0, bitmap.height)
+                        )
+                        val scaledLeftEye = targetFace.leftEye?.let { android.graphics.PointF(it.x * scaleX, it.y * scaleY) }
+                        val scaledRightEye = targetFace.rightEye?.let { android.graphics.PointF(it.x * scaleX, it.y * scaleY) }
+
+                        faceEmbeddingDataSource.extractEmbedding(
+                            sourceBitmap = bitmap,
+                            boundingBox = scaledBox,
+                            leftEye = scaledLeftEye,
+                            rightEye = scaledRightEye
+                        ).getOrNull()
+                    } else null
+                }
+            } else null
 
             if (embedding != null) {
                 val currentCentroid = FaceEmbeddingDataSource.stringToVector(cluster.centroidVector)
@@ -307,7 +433,8 @@ class FaceClusteringService(
 
         val photoEntity = smartGalleryDao.getPhotoById(photoId)
         if (photoEntity != null) {
-            val cleanedSearchContent = photoEntity.searchContent.replace(cluster.name, "", ignoreCase = true).trim()
+            val regex = Regex("(?i)\\b${Regex.escape(cluster.name)}\\b")
+            val cleanedSearchContent = photoEntity.searchContent.replace(regex, "").replace(Regex("\\s+"), " ").trim()
             val cleanedLabels = photoEntity.labels.filterNot { it.equals(cluster.name, ignoreCase = true) }
             smartGalleryDao.updatePhotoLabelsAndSearch(photoId, cleanedLabels, cleanedSearchContent)
         }
@@ -321,11 +448,50 @@ class FaceClusteringService(
         val cluster = smartGalleryDao.getClusterById(clusterId) ?: return@withContext
         val newCoverUri = if (bitmap != null) {
             val cropUri = if (cluster.isPet) {
-                val box = Rect(0, 0, bitmap.width, bitmap.height)
-                petEmbeddingDataSource.savePetCrop(bitmap, box, clusterId)
+                val objectsResult = objectDetectionDataSource?.detectObjects(photo.uri)
+                val petBox = objectsResult?.objects?.filter { obj ->
+                    obj.label.contains("perro", ignoreCase = true) ||
+                    obj.label.contains("gato", ignoreCase = true) ||
+                    obj.label.contains("mascota", ignoreCase = true) ||
+                    obj.label.contains("animal", ignoreCase = true) ||
+                    obj.label.contains("dog", ignoreCase = true) ||
+                    obj.label.contains("cat", ignoreCase = true) ||
+                    obj.label.contains("pet", ignoreCase = true)
+                }?.maxByOrNull { it.box.width() * it.box.height() }?.box
+
+                val scaledBox = if (petBox != null) {
+                    val imgW = if (objectsResult.imageWidth > 0) objectsResult.imageWidth else bitmap.width
+                    val imgH = if (objectsResult.imageHeight > 0) objectsResult.imageHeight else bitmap.height
+                    val scaleX = bitmap.width.toFloat() / imgW.toFloat()
+                    val scaleY = bitmap.height.toFloat() / imgH.toFloat()
+                    Rect(
+                        (petBox.left * scaleX).toInt().coerceIn(0, bitmap.width),
+                        (petBox.top * scaleY).toInt().coerceIn(0, bitmap.height),
+                        (petBox.right * scaleX).toInt().coerceIn(0, bitmap.width),
+                        (petBox.bottom * scaleY).toInt().coerceIn(0, bitmap.height)
+                    )
+                } else {
+                    Rect(0, 0, bitmap.width, bitmap.height)
+                }
+                petEmbeddingDataSource.savePetCrop(bitmap, scaledBox, clusterId)
             } else {
-                val box = Rect(0, 0, bitmap.width, bitmap.height)
-                faceEmbeddingDataSource.saveFaceCrop(bitmap, box, clusterId)
+                val facesDetailed = faceDetectionDataSource?.detectFacesDetailed(photo.uri)
+                val targetFace = facesDetailed?.faces?.maxByOrNull { it.box.width() * it.box.height() }
+                val scaledBox = if (targetFace != null) {
+                    val imgW = if (facesDetailed.imageWidth > 0) facesDetailed.imageWidth else bitmap.width
+                    val imgH = if (facesDetailed.imageHeight > 0) facesDetailed.imageHeight else bitmap.height
+                    val scaleX = bitmap.width.toFloat() / imgW.toFloat()
+                    val scaleY = bitmap.height.toFloat() / imgH.toFloat()
+                    Rect(
+                        (targetFace.box.left * scaleX).toInt().coerceIn(0, bitmap.width),
+                        (targetFace.box.top * scaleY).toInt().coerceIn(0, bitmap.height),
+                        (targetFace.box.right * scaleX).toInt().coerceIn(0, bitmap.width),
+                        (targetFace.box.bottom * scaleY).toInt().coerceIn(0, bitmap.height)
+                    )
+                } else {
+                    Rect(0, 0, bitmap.width, bitmap.height)
+                }
+                faceEmbeddingDataSource.saveFaceCrop(bitmap, scaledBox, clusterId)
             }
             if (cropUri.isNotBlank()) cropUri else photo.uri.toString()
         } else {
@@ -349,9 +515,10 @@ class FaceClusteringService(
         val oldName = oldCluster.name
         smartGalleryDao.updateClusterName(clusterId, newName)
 
+        val regex = Regex("(?i)\\b${Regex.escape(oldName)}\\b")
         val photos = smartGalleryDao.getPhotosForCluster(clusterId).first()
         for (photo in photos) {
-            val updatedSearchContent = photo.searchContent.replace(oldName, newName, ignoreCase = true)
+            val updatedSearchContent = photo.searchContent.replace(regex, newName).replace(Regex("\\s+"), " ").trim()
             val finalSearchContent = if (!updatedSearchContent.contains(newName, ignoreCase = true)) {
                 "$updatedSearchContent $newName"
             } else {

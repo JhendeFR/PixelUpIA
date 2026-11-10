@@ -189,7 +189,7 @@ class GenerateSmartMemoriesUseCase(
         val ocrBlockCount = photo.boundingBoxes?.let { json ->
             Regex("""\{"text":""").findAll(json).count()
         } ?: 0
-        if (ocrBlockCount > 8) {
+        if (ocrBlockCount >= 5) {
             return false
         }
         return photo.uri.isNotBlank()

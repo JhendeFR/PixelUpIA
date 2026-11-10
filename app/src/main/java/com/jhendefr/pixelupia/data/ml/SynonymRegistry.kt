@@ -16,11 +16,12 @@ object SynonymRegistry {
         "selfie" to listOf("selfie", "autoretrato", "foto", "rostro", "primer plano", "retrato"),
 
         // Animales y Mascotas
-        "perro" to listOf("perro", "can", "perrito", "cachorro", "canino", "sabueso", "lomito", "mascota", "dog"),
-        "perros" to listOf("perros", "canes", "perritos", "cachorros", "caninos", "mascotas", "lomitos", "dogs"),
-        "gato" to listOf("gato", "felino", "minino", "michi", "gatito", "mascota", "animal", "cat"),
-        "gatos" to listOf("gatos", "felinos", "mininos", "michis", "gatitos", "mascotas", "cats"),
-        "mascota" to listOf("mascota", "animal", "perro", "gato", "companero", "cachorro", "domestico"),
+        "perro" to listOf("perro", "can", "perrito", "cachorro", "canino", "sabueso", "lomito", "dog", "puppy"),
+        "perros" to listOf("perros", "canes", "perritos", "cachorros", "caninos", "sabuesos", "lomitos", "dogs"),
+        "gato" to listOf("gato", "felino", "minino", "michi", "gatito", "cat", "kitten"),
+        "gatos" to listOf("gatos", "felinos", "mininos", "michis", "gatitos", "cats", "kittens"),
+        "mascota" to listOf("mascota", "mascotas", "animal", "companero", "domestico", "pet"),
+        "mascotas" to listOf("mascotas", "mascota", "animales", "companeros", "domesticos", "pets"),
         "ave" to listOf("ave", "pajaro", "pajarito", "plumaje", "volador", "fauna", "alas"),
         "pajaro" to listOf("pajaro", "ave", "pajarito", "plumaje", "volador", "fauna", "alas"),
         "caballo" to listOf("caballo", "corcel", "yegua", "potro", "equino", "animal"),
@@ -108,6 +109,18 @@ object SynonymRegistry {
     }
 
     /**
+     * Retorna los sinonimos para busquedas en UI. Unicamente cuando el usuario busca "mascota"
+     * o "mascotas" se expande a perros y gatos, evitando contaminar el indice FTS de etiquetas de fotos.
+     */
+    fun getSearchQuerySynonyms(term: String): List<String> {
+        val lower = removeAccents(term.trim().lowercase(Locale.ROOT))
+        if (lower == "mascota" || lower == "mascotas") {
+            return listOf("mascota", "mascotas", "perro", "gato", "canino", "felino", "cachorro", "gatito", "pet")
+        }
+        return getSynonyms(term)
+    }
+
+    /**
      * Expande una cadena para el indice searchContent, inyectando de 4 a 10 sinonimos.
      */
     fun expandForSearchContent(label: String): String {
@@ -130,9 +143,8 @@ object SynonymRegistry {
         for (token in tokens) {
             expandedTokens.add(token)
             val lower = removeAccents(token.lowercase(Locale.ROOT))
-            synonymMap[lower]?.let { list ->
-                expandedTokens.addAll(list.take(6))
-            }
+            val list = getSearchQuerySynonyms(lower)
+            expandedTokens.addAll(list.take(6))
         }
         return expandedTokens.distinct()
     }

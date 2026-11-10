@@ -63,14 +63,14 @@ class PetEmbeddingDataSource(
                 val g = (pixel shr 8 and 0xFF)
                 val b = (pixel and 0xFF)
 
-                // Normalizacion MobileNetV3 [0.0, 1.0]
+                // Normalizacion de MobileNetV3 [0.0, 1.0]
                 inputBuffer.putFloat(r / 255.0f)
                 inputBuffer.putFloat(g / 255.0f)
                 inputBuffer.putFloat(b / 255.0f)
             }
 
             val currentInterpreter = getInterpreter()
-            // Obtener dimension dinamica de salida (1280 floats)
+            // Obtener dimension de salida (1280 floats)
             val outputDim = currentInterpreter.getOutputTensor(0).shape().let { shape ->
                 if (shape.size > 1) shape[1] else shape[0]
             }
@@ -129,7 +129,8 @@ class PetEmbeddingDataSource(
 
             val dir = java.io.File(context.filesDir, "cluster_crops")
             if (!dir.exists()) dir.mkdirs()
-            val cropFile = java.io.File(dir, "cluster_${clusterId}.jpg")
+            dir.listFiles { _, name -> name.startsWith("cluster_${clusterId}_") || name == "cluster_${clusterId}.jpg" }?.forEach { it.delete() }
+            val cropFile = java.io.File(dir, "cluster_${clusterId}_${System.currentTimeMillis()}.jpg")
             java.io.FileOutputStream(cropFile).use { out ->
                 scaledAvatar.compress(Bitmap.CompressFormat.JPEG, 92, out)
             }
