@@ -76,3 +76,14 @@ git lfs pull
 
 El APK generado quedará en:
 `app/build/outputs/apk/debug/app-debug.apk`
+
+---
+
+## Anuncio Importante
+
+> [!IMPORTANT]
+> **Estado actual de las ramas, descargas y hoja de ruta:**
+> - **Rama `main` (v1):** contiene la versión base enfocada en una demo de ejecución de modelos `.tflite` en Android, utilizando **ESRGAN**.
+> - **Rama `develop` (v2):** incorpora muchas más funcionalidades implementadas con modelos de la familia **ML Kit** y técnicas de desarrollo moderno en Android. Se puede probar directamente, aunque varias funciones aún pueden presentar errores o *bugs*.
+> - **Próxima versión (v3):** se planea integrar **EmbeddingGemma 2** para la búsqueda e indexación semántica (sustituyendo a **MobileCLIP-S0**), además de completar las funcionalidades básicas de la galería, actualizar la línea de diseño y optimizar el rendimiento general de la aplicación.
+> - **Descarga del APK compilado:** puedes descargar la versión lista para instalar desde [Releases v1.1.0](https://github.com/JhendeFR/PixelUpIA/releases/tag/v1.1.0).
