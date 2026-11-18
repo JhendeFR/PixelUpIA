@@ -12,13 +12,14 @@ class GetFaceClustersUseCase(
     operator fun invoke(): Flow<List<FaceCluster>> {
         return smartGalleryDao.getAllClusters().map { entities ->
             entities.map { entity ->
-                FaceCluster(
-                    id = entity.clusterId,
-                    name = entity.name,
-                    isPet = entity.isPet,
-                    coverUri = Uri.parse(entity.coverUri),
-                    photoCount = entity.photoCount
-                )
+                    FaceCluster(
+                        id = entity.clusterId,
+                        name = entity.name,
+                        isPet = entity.isPet,
+                        coverUri = Uri.parse(entity.coverUri),
+                        photoCount = entity.photoCount,
+                        isUserNamed = entity.isUserNamed
+                    )
             }.sortedByDescending { it.photoCount }
         }
     }

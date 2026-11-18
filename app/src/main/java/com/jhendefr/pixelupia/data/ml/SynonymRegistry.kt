@@ -16,11 +16,12 @@ object SynonymRegistry {
         "selfie" to listOf("selfie", "autoretrato", "foto", "rostro", "primer plano", "retrato"),
 
         // Animales y Mascotas
-        "perro" to listOf("perro", "can", "perrito", "cachorro", "canino", "sabueso", "lomito", "mascota", "dog"),
-        "perros" to listOf("perros", "canes", "perritos", "cachorros", "caninos", "mascotas", "lomitos", "dogs"),
-        "gato" to listOf("gato", "felino", "minino", "michi", "gatito", "mascota", "animal", "cat"),
-        "gatos" to listOf("gatos", "felinos", "mininos", "michis", "gatitos", "mascotas", "cats"),
-        "mascota" to listOf("mascota", "animal", "perro", "gato", "companero", "cachorro", "domestico"),
+        "perro" to listOf("perro", "can", "perrito", "cachorro", "canino", "sabueso", "lomito", "dog", "puppy"),
+        "perros" to listOf("perros", "canes", "perritos", "cachorros", "caninos", "sabuesos", "lomitos", "dogs"),
+        "gato" to listOf("gato", "felino", "minino", "michi", "gatito", "cat", "kitten"),
+        "gatos" to listOf("gatos", "felinos", "mininos", "michis", "gatitos", "cats", "kittens"),
+        "mascota" to listOf("mascota", "mascotas", "animal", "companero", "domestico", "pet"),
+        "mascotas" to listOf("mascotas", "mascota", "animales", "companeros", "domesticos", "pets"),
         "ave" to listOf("ave", "pajaro", "pajarito", "plumaje", "volador", "fauna", "alas"),
         "pajaro" to listOf("pajaro", "ave", "pajarito", "plumaje", "volador", "fauna", "alas"),
         "caballo" to listOf("caballo", "corcel", "yegua", "potro", "equino", "animal"),
@@ -80,22 +81,55 @@ object SynonymRegistry {
         "boda" to listOf("boda", "casamiento", "matrimonio", "ceremonia", "fiesta", "nupcias", "celebracion", "pareja"),
         "fiesta" to listOf("fiesta", "evento", "celebracion", "reunion", "agasajo", "festejo", "salida", "diversion", "party"),
         "concierto" to listOf("concierto", "recital", "musica", "show", "espectaculo", "banda", "festival"),
-        "navidad" to listOf("navidad", "nochebuena", "navideno", "arbolito", "regalos", "fiestas", "diciembre")
+        "navidad" to listOf("navidad", "nochebuena", "navideno", "arbolito", "regalos", "fiestas", "diciembre"),
+
+        // Colores y Variantes
+        "azul" to listOf("azul", "celeste", "marino", "turquesa", "blue"),
+        "celeste" to listOf("celeste", "azul claro", "cian", "azul"),
+        "rojo" to listOf("rojo", "carmesi", "escarlata", "bordo", "vinotinto", "red"),
+        "verde" to listOf("verde", "oliva", "esmeralda", "green"),
+        "amarillo" to listOf("amarillo", "dorado", "mostaza", "yellow"),
+        "negro" to listOf("negro", "oscuro", "black"),
+        "blanco" to listOf("blanco", "claro", "crema", "white"),
+        "gris" to listOf("gris", "plateado", "plomo", "gray", "grey"),
+        "marron" to listOf("marron", "cafe", "pardo", "castano", "brown"),
+        "naranja" to listOf("naranja", "anaranjado", "orange"),
+        "rosa" to listOf("rosa", "rosado", "fucsia", "pink"),
+        "violeta" to listOf("violeta", "morado", "purpura", "lila", "purple")
     )
 
+    private fun removeAccents(text: String): String {
+        val normalized = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD)
+        return normalized.replace(Regex("\\p{M}"), "")
+    }
+
     fun getSynonyms(term: String): List<String> {
-        val lower = term.trim().lowercase(Locale.ROOT)
+        val lower = removeAccents(term.trim().lowercase(Locale.ROOT))
         return synonymMap[lower] ?: emptyList()
+    }
+
+    /**
+     * Retorna los sinonimos para busquedas en UI. Unicamente cuando el usuario busca "mascota"
+     * o "mascotas" se expande a perros y gatos, evitando contaminar el indice FTS de etiquetas de fotos.
+     */
+    fun getSearchQuerySynonyms(term: String): List<String> {
+        val lower = removeAccents(term.trim().lowercase(Locale.ROOT))
+        if (lower == "mascota" || lower == "mascotas") {
+            return listOf("mascota", "mascotas", "perro", "gato", "canino", "felino", "cachorro", "gatito", "pet")
+        }
+        return getSynonyms(term)
     }
 
     /**
      * Expande una cadena para el indice searchContent, inyectando de 4 a 10 sinonimos.
      */
     fun expandForSearchContent(label: String): String {
-        val lower = label.trim().lowercase(Locale.ROOT)
-        val synonyms = synonymMap[lower]
+        val cleanTerm = removeAccents(
+            label.substringBefore(" -").substringBefore("(").trim().lowercase(Locale.ROOT)
+        )
+        val synonyms = synonymMap[cleanTerm]
         return if (!synonyms.isNullOrEmpty()) {
-            synonyms.joinToString(" ")
+            "$label ${synonyms.joinToString(" ")}"
         } else {
             label
         }
@@ -108,11 +142,21 @@ object SynonymRegistry {
         val expandedTokens = mutableListOf<String>()
         for (token in tokens) {
             expandedTokens.add(token)
-            val lower = token.lowercase(Locale.ROOT)
-            synonymMap[lower]?.let { list ->
-                expandedTokens.addAll(list.take(6))
-            }
+            val lower = removeAccents(token.lowercase(Locale.ROOT))
+            val list = getSearchQuerySynonyms(lower)
+            expandedTokens.addAll(list.take(6))
         }
         return expandedTokens.distinct()
+    }
+
+    /**
+     * Expande un par compuesto objeto-color (ej. "camisa", "azul") generando variaciones
+     * con los sinonimos de dicho objeto y el color para enriquecer searchContent e indexar
+     * busquedas como "camisa azul", "remera azul", "playera azul", etc.
+     */
+    fun expandCompound(objectLabel: String, color: String): List<String> {
+        val synonyms = getSynonyms(objectLabel).ifEmpty { listOf(objectLabel) }
+        val cleanColor = color.trim().lowercase(Locale.ROOT)
+        return synonyms.map { "$it $cleanColor" }
     }
 }

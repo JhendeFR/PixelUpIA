@@ -41,11 +41,16 @@ class GetSmartCollectionsUseCase(
                 // Agrupar fotos que tengan un sourceApp identificado
                 val appMap = mutableMapOf<String, MutableList<Photo>>()
 
+                val entityMap = entities.associateBy { it.photoId }
+
                 // Primero desde allPhotos (incluye capturas de MediaStore)
                 for (photo in allPhotos) {
                     val app = photo.sourceApp
                     if (!app.isNullOrBlank() && !app.equals("Desconocido", ignoreCase = true)) {
-                        appMap.getOrOrPut(app) { mutableListOf() }.add(photo)
+                        val excluded = (entityMap[photo.id]?.excludedTags ?: emptyList()).map { it.lowercase(Locale.ROOT).trim() }.toSet()
+                        if (!excluded.contains(app.lowercase(Locale.ROOT).trim())) {
+                            appMap.getOrOrPut(app) { mutableListOf() }.add(photo)
+                        }
                     }
                 }
 
@@ -53,6 +58,10 @@ class GetSmartCollectionsUseCase(
                 for (entity in entities) {
                     val app = entity.sourceApp
                     if (!app.isNullOrBlank() && !app.equals("Desconocido", ignoreCase = true)) {
+                        val excluded = entity.excludedTags.map { it.lowercase(Locale.ROOT).trim() }.toSet()
+                        if (excluded.contains(app.lowercase(Locale.ROOT).trim())) {
+                            continue
+                        }
                         val photo = photoMap[entity.photoId] ?: Photo(
                             id = entity.photoId,
                             uri = Uri.parse(entity.uri),
@@ -97,8 +106,11 @@ class GetSmartCollectionsUseCase(
                         sourceApp = entity.sourceApp
                     )
 
+                    val excludedLowerSet = entity.excludedTags.map { it.lowercase(Locale.ROOT).trim() }.toSet()
+
                     // Categoria: Personas / Rostros
-                    if (entity.hasFaces || entity.labels.any { it.startsWith("Persona", ignoreCase = true) }) {
+                    if (!excludedLowerSet.contains("personas") && !excludedLowerSet.contains("persona") &&
+                        (entity.hasFaces || entity.labels.any { it.startsWith("Persona", ignoreCase = true) })) {
                         val list = visualCategoryMap.getOrOrPut("Personas") { mutableListOf() }
                         if (list.none { it.id == photo.id }) {
                             list.add(photo)
@@ -106,7 +118,8 @@ class GetSmartCollectionsUseCase(
                     }
 
                     // Categoria: Codigos QR y Barras
-                    if (entity.barcodes.isNotEmpty()) {
+                    if (!excludedLowerSet.contains("codigos qr") && !excludedLowerSet.contains("codigo qr") && !excludedLowerSet.contains("qr") &&
+                        entity.barcodes.isNotEmpty()) {
                         val list = visualCategoryMap.getOrOrPut("Codigos QR") { mutableListOf() }
                         if (list.none { it.id == photo.id }) {
                             list.add(photo)
@@ -125,7 +138,8 @@ class GetSmartCollectionsUseCase(
                     }
                     val hasPaymentText = containsPaymentKeywords(entity.textContent)
 
-                    if (hasPaymentEntities || hasPaymentLabel || hasPaymentText) {
+                    if (!excludedLowerSet.contains("pagos y facturas") && !excludedLowerSet.contains("factura") && !excludedLowerSet.contains("pago") && !excludedLowerSet.contains("recibo") &&
+                        (hasPaymentEntities || hasPaymentLabel || hasPaymentText)) {
                         val list = visualCategoryMap.getOrOrPut("Pagos y Facturas") { mutableListOf() }
                         if (list.none { it.id == photo.id }) {
                             list.add(photo)
@@ -140,7 +154,8 @@ class GetSmartCollectionsUseCase(
                     }
                     val hasDocumentText = containsDocumentKeywords(entity.textContent)
 
-                    if (hasDocumentLabel || hasDocumentText) {
+                    if (!excludedLowerSet.contains("documentos") && !excludedLowerSet.contains("documento") &&
+                        (hasDocumentLabel || hasDocumentText)) {
                         val list = visualCategoryMap.getOrOrPut("Documentos") { mutableListOf() }
                         if (list.none { it.id == photo.id }) {
                             list.add(photo)
@@ -148,22 +163,56 @@ class GetSmartCollectionsUseCase(
                     }
 
                     // Categorias extraidas de las etiquetas de ML Kit
+                    val isDocOrPaymentPhoto = hasPaymentEntities || hasPaymentLabel || hasPaymentText || hasDocumentLabel || hasDocumentText
+
                     for (rawLabel in entity.labels) {
                         val labelName = rawLabel.substringBefore(" - ").trim()
-                        if (labelName.isNotBlank() &&
-                            !labelName.equals("Objeto", ignoreCase = true) &&
-                            !labelName.equals("Objeto detectado", ignoreCase = true) &&
-                            !labelName.equals("Persona", ignoreCase = true) &&
-                            !labelName.equals("Personas", ignoreCase = true) &&
-                            !labelName.equals("Recibo", ignoreCase = true) &&
-                            !labelName.equals("Dinero", ignoreCase = true) &&
-                            !labelName.equals("Papel", ignoreCase = true) &&
-                            !labelName.equals("Pasaporte", ignoreCase = true)
-                        ) {
+                        val lower = labelName.lowercase(Locale.ROOT)
+
+                        // 1. Respetar exclusiones explicitas del usuario
+                        if (excludedLowerSet.contains(lower) || excludedLowerSet.any { lower.contains(it) }) {
+                            continue
+                        }
+
+                        // 2. Si la foto es documento/pago, no permitir categorias de mascotas o comida
+                        if (isDocOrPaymentPhoto) {
+                            val isAnimal = lower.contains("perro") || lower.contains("gato") || lower.contains("mascota") || lower.contains("animal")
+                            val isFood = lower.contains("comida") || lower.contains("alimento")
+                            if (isAnimal || isFood) continue
+                        }
+
+                        // 3. Excluir etiquetas de color (se mantienen en BD para busquedas pero no generan albumes visuales)
+                        if (com.jhendefr.pixelupia.data.ml.ColorAttributeExtractor.isColorLabel(labelName)) {
+                            continue
+                        }
+
+                        // 4. Excluir categorias no deseadas o con alta tasa de falsos positivos
+                        val isNoisyCategory = lower == "objeto" ||
+                                lower == "objeto detectado" ||
+                                lower == "persona" ||
+                                lower == "personas" ||
+                                lower == "recibo" ||
+                                lower == "dinero" ||
+                                lower == "papel" ||
+                                lower == "pasaporte" ||
+                                lower.contains("insect") ||
+                                lower.contains("artropod") ||
+                                lower.contains("invertebrad") ||
+                                lower.contains("escarabajo") ||
+                                lower.contains("arana") ||
+                                lower.contains("plaga")
+
+                        if (labelName.isNotBlank() && !isNoisyCategory) {
                             val categoryTitle = pluralizeCategory(labelName)
-                            val list = visualCategoryMap.getOrOrPut(categoryTitle) { mutableListOf() }
-                            if (list.none { it.id == photo.id }) {
-                                list.add(photo)
+                            if (com.jhendefr.pixelupia.data.ml.ColorAttributeExtractor.isColorLabel(categoryTitle)) {
+                                continue
+                            }
+                            val categoryLower = categoryTitle.lowercase(Locale.ROOT)
+                            if (!excludedLowerSet.contains(categoryLower)) {
+                                val list = visualCategoryMap.getOrOrPut(categoryTitle) { mutableListOf() }
+                                if (list.none { it.id == photo.id }) {
+                                    list.add(photo)
+                                }
                             }
                         }
                     }

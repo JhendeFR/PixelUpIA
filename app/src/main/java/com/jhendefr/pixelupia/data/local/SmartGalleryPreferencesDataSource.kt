@@ -12,6 +12,9 @@ class SmartGalleryPreferencesDataSource(context: Context) {
     private val keyHiddenCollections = "hidden_smart_collection_ids"
     private val keyChosenFolders = "chosen_index_folder_names"
     private val keyShowIndexedCount = "show_indexed_count_toggle"
+    private val keyFilterChips = "custom_filter_chips_list"
+
+    private val defaultFilterChips = listOf("Lugares", "Documentos", "Ropa", "Eventos", "Pagos", "Mascotas", "Codigos QR")
 
     private val _hiddenCollectionsFlow = MutableStateFlow(loadHiddenCollections())
     val hiddenCollectionsFlow: Flow<Set<String>> = _hiddenCollectionsFlow.asStateFlow()
@@ -22,21 +25,41 @@ class SmartGalleryPreferencesDataSource(context: Context) {
     private val _showIndexedCountFlow = MutableStateFlow(loadShowIndexedCount())
     val showIndexedCountFlow: Flow<Boolean> = _showIndexedCountFlow.asStateFlow()
 
+    private val _activeFilterChipsFlow = MutableStateFlow(loadActiveFilterChips())
+    val activeFilterChipsFlow: Flow<List<String>> = _activeFilterChipsFlow.asStateFlow()
+
     private fun loadHiddenCollections(): Set<String> {
         return prefs.getStringSet(keyHiddenCollections, emptySet()) ?: emptySet()
     }
 
     private fun loadChosenFolders(): Set<String> {
         val stored = prefs.getStringSet(keyChosenFolders, null)
-        return if (stored.isNullOrEmpty()) {
-            setOf("Screenshots")
-        } else {
-            stored
-        }
+        return stored ?: emptySet()
     }
 
     private fun loadShowIndexedCount(): Boolean {
         return prefs.getBoolean(keyShowIndexedCount, true)
+    }
+
+    private fun loadActiveFilterChips(): List<String> {
+        val raw = prefs.getString(keyFilterChips, null)
+        return if (raw.isNullOrBlank()) {
+            defaultFilterChips
+        } else {
+            raw.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        }
+    }
+
+    fun saveActiveFilterChips(chips: List<String>) {
+        val clean = chips.map { it.trim() }.filter { it.isNotBlank() && !it.equals("Todos", ignoreCase = true) }.distinct()
+        val toSave = if (clean.isEmpty()) defaultFilterChips else clean
+        prefs.edit().putString(keyFilterChips, toSave.joinToString(",")).apply()
+        _activeFilterChipsFlow.value = toSave
+    }
+
+    fun resetFilterChipsToDefault() {
+        prefs.edit().remove(keyFilterChips).apply()
+        _activeFilterChipsFlow.value = defaultFilterChips
     }
 
     fun hideCollection(collectionId: String) {
@@ -58,9 +81,8 @@ class SmartGalleryPreferencesDataSource(context: Context) {
     }
 
     fun setChosenFolders(folders: Set<String>) {
-        val finalFolders = if (folders.isEmpty()) setOf("Screenshots") else folders
-        prefs.edit().putStringSet(keyChosenFolders, finalFolders).apply()
-        _chosenFoldersFlow.value = finalFolders
+        prefs.edit().putStringSet(keyChosenFolders, folders).apply()
+        _chosenFoldersFlow.value = folders
     }
 
     fun toggleFolderIndexing(folderName: String) {
@@ -70,9 +92,8 @@ class SmartGalleryPreferencesDataSource(context: Context) {
         } else {
             current.add(folderName)
         }
-        val finalFolders = if (current.isEmpty()) setOf("Screenshots") else current
-        prefs.edit().putStringSet(keyChosenFolders, finalFolders).apply()
-        _chosenFoldersFlow.value = finalFolders
+        prefs.edit().putStringSet(keyChosenFolders, current).apply()
+        _chosenFoldersFlow.value = current
     }
 
     fun toggleShowIndexedCount(): Boolean {

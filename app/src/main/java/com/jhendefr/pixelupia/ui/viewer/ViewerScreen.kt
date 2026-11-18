@@ -53,6 +53,7 @@ import java.util.Locale
 fun ViewerScreen(
     viewModel: ViewerViewModel,
     isFromAi: Boolean = false,
+    onSearchSuggestion: ((String) -> Unit)? = null,
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -216,6 +217,10 @@ fun ViewerScreen(
             onRemoveTag = { tag ->
                 viewModel.onEvent(ViewerEvent.RemoveTag(currentPhoto.id, tag))
             },
+            onViewFaceBoundingBox = {
+                viewModel.onEvent(ViewerEvent.TriggerFaceDetection(currentPhoto.uri))
+            },
+            onSearchSuggestion = onSearchSuggestion,
             onDismiss = {
                 viewModel.onEvent(ViewerEvent.DismissMultimodalDetailsSheet)
             }
@@ -241,7 +246,8 @@ fun ViewerScreen(
                 photo = photo,
                 onTap = { showUI = !showUI },
                 onSwipeUp = { showInfoSheet = true },
-                onZoomChanged = { isPagerEnabled = it <= 1.05f }
+                onZoomChanged = { isPagerEnabled = it <= 1.05f },
+                isAiOverlayActive = uiState.activeAiMode != ActiveAiMode.NONE
             )
         }
 
@@ -603,28 +609,26 @@ fun ViewerScreen(
                             }
 
                             // Botón de IA: Al presionarlo, transmuta la píldora por las funciones de IA
-                            if (isFromAi) {
-                                IconButton(
-                                    onClick = { viewModel.onEvent(ViewerEvent.ToggleAiMode) },
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = "Activar funciones IA",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            } else {
-                                IconButton(
-                                    onClick = { showInfoSheet = true },
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                ) {
-                                    Icon(
-                                        Icons.Default.Info,
-                                        contentDescription = "Informacion",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                            IconButton(
+                                onClick = { viewModel.onEvent(ViewerEvent.ToggleAiMode) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Activar funciones IA",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { showInfoSheet = true },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = "Informacion",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
 
                             IconButton(
@@ -728,12 +732,22 @@ fun ZoomableImage(
     photo: Photo,
     onTap: () -> Unit,
     onSwipeUp: () -> Unit,
-    onZoomChanged: (Float) -> Unit
+    onZoomChanged: (Float) -> Unit,
+    isAiOverlayActive: Boolean = false
 ) {
     val coroutineScope = rememberCoroutineScope()
     val scale = remember { Animatable(1f) }
     val offsetX = remember { Animatable(0f) }
     val offsetY = remember { Animatable(0f) }
+
+    LaunchedEffect(isAiOverlayActive) {
+        if (isAiOverlayActive) {
+            onZoomChanged(1f)
+            scale.animateTo(1f, animationSpec = PixelUpIAMotion.spatialFloatSpring)
+            offsetX.animateTo(0f, animationSpec = PixelUpIAMotion.spatialFloatSpring)
+            offsetY.animateTo(0f, animationSpec = PixelUpIAMotion.spatialFloatSpring)
+        }
+    }
 
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
 

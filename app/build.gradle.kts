@@ -13,10 +13,14 @@ android {
         applicationId = "com.jhendefr.pixelupia"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += setOf("arm64-v8a", "x86_64")
+        }
     }
 
     buildTypes {
@@ -98,10 +102,8 @@ dependencies {
     implementation(libs.mlkit.image.labeling)
     implementation(libs.mlkit.entity.extraction)
     implementation(libs.mlkit.objects)
+    implementation(libs.mlkit.translate)
 
-    // TensorFlow Lite
-    implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.support)
 
     // AndroidX WorkManager
     implementation(libs.androidx.work.runtime.ktx)

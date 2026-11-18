@@ -61,10 +61,11 @@ class FaceEmbeddingDataSource(
             }
 
             val resized = Bitmap.createScaledBitmap(cropBitmap, inputSize, inputSize, true)
+            // Convertir bitmap a ByteBuffer (rostro, alto, ancho, rgb, paginado de bits) = 307.200 bytes
             val inputBuffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4).apply {
                 order(ByteOrder.nativeOrder())
             }
-
+            // Preprocesamiento
             val intValues = IntArray(inputSize * inputSize)
             resized.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize)
 
@@ -73,23 +74,23 @@ class FaceEmbeddingDataSource(
                 val g = (pixel shr 8 and 0xFF)
                 val b = (pixel and 0xFF)
 
-                // Normalizacion estandar FaceNet [-1.0, 1.0] con 127.5 / 128.0
+                // Normalizacion estandar de FaceNet [-1.0, 1.0]
                 inputBuffer.putFloat((r - 127.5f) / 128.0f)
                 inputBuffer.putFloat((g - 127.5f) / 128.0f)
                 inputBuffer.putFloat((b - 127.5f) / 128.0f)
             }
 
             val currentInterpreter = getInterpreter()
-            // Resolver dinamicamente la dimension del vector de salida (512 floats)
+            // Resolver dimension del vector de salida (512 floats)
             val outputDim = currentInterpreter.getOutputTensor(0).shape().let { shape ->
                 if (shape.size > 1) shape[1] else shape[0]
             }
-
+            // Inferencia
             val outputBuffer = Array(1) { FloatArray(outputDim) }
             synchronized(this@FaceEmbeddingDataSource) {
                 currentInterpreter.run(inputBuffer, outputBuffer)
             }
-
+            // Normalizar vector de salida
             val rawEmbedding = outputBuffer[0]
             val normalizedEmbedding = l2Normalize(rawEmbedding)
             Result.success(normalizedEmbedding)
@@ -186,7 +187,8 @@ class FaceEmbeddingDataSource(
 
             val dir = java.io.File(context.filesDir, "cluster_crops")
             if (!dir.exists()) dir.mkdirs()
-            val cropFile = java.io.File(dir, "cluster_${clusterId}.jpg")
+            dir.listFiles { _, name -> name.startsWith("cluster_${clusterId}_") || name == "cluster_${clusterId}.jpg" }?.forEach { it.delete() }
+            val cropFile = java.io.File(dir, "cluster_${clusterId}_${System.currentTimeMillis()}.jpg")
             java.io.FileOutputStream(cropFile).use { out ->
                 scaledAvatar.compress(Bitmap.CompressFormat.JPEG, 92, out)
             }

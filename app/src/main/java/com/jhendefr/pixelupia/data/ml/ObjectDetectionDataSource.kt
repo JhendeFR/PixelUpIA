@@ -47,7 +47,7 @@ class ObjectDetectionDataSource(
         val imgWidth = image.width
         val imgHeight = image.height
 
-        // 1. Deteccion espacial de objetos
+        // 1. Deteccion de objetos
         val detectedObjects = suspendCancellableCoroutine<List<DetectedObject>> { continuation ->
             detector.process(image)
                 .addOnSuccessListener { continuation.resume(it) }
@@ -62,30 +62,12 @@ class ObjectDetectionDataSource(
             )
         }
 
-        // 2. Deteccion de rostros para clasificacion certera de personas
+        // 2. Deteccion de personas y rostros
         val facesResult = runCatching { faceDetectionDataSource.detectFacesDetailed(uri) }.getOrNull()
         val faceBoxes = facesResult?.faces?.map { it.box } ?: emptyList()
 
-        // 3. Cargar bitmap optimizado para clasificar recortes de objetos no identificados
-        val sourceBitmap = runCatching {
-            val boundsOptions = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, boundsOptions)
-            }
-            val maxDim = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
-            var sample = 1
-            while (maxDim / sample > 2048) {
-                sample *= 2
-            }
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = sample
-            }
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, decodeOptions)
-            }
-        }.getOrNull()
+        // 3. Cargar bitmap optimizado para clasificar recortes
+        val sourceBitmap = ImageUtils.loadCorrectlyOrientedBitmap(context, uri, maxDimension = 2048)
 
         val scaleX = if (sourceBitmap != null && imgWidth > 0) sourceBitmap.width.toFloat() / imgWidth.toFloat() else 1f
         val scaleY = if (sourceBitmap != null && imgHeight > 0) sourceBitmap.height.toFloat() / imgHeight.toFloat() else 1f
@@ -95,7 +77,7 @@ class ObjectDetectionDataSource(
             var labelText: String
             var confidence: Float
 
-            // Comprobar si el objeto corresponde a una persona (solapamiento con rostro detectado)
+            // Evitar solapamiento con rostros
             val isPerson = faceBoxes.any { faceBox ->
                 Rect.intersects(faceBox, obj.boundingBox) ||
                         obj.boundingBox.contains(faceBox.centerX(), faceBox.centerY())
@@ -105,16 +87,16 @@ class ObjectDetectionDataSource(
                 labelText = "Persona"
                 confidence = 0.95f
             } else if (topNativeLabel != null &&
-                topNativeLabel.confidence >= 0.60f &&
+                topNativeLabel.confidence >= 0.65f &&
                 topNativeLabel.text.isNotBlank() &&
                 !topNativeLabel.text.equals("Unknown", ignoreCase = true)
             ) {
                 labelText = LabelTranslator.translate(topNativeLabel.text)
                 confidence = topNativeLabel.confidence
             } else {
-                // Si ML Kit detector no tiene etiqueta nativa, clasificar el recorte del objeto con ImageLabeler
+                // Si ML Kit detector no lo etiqueta, clasificar el recorte del objeto con ImageLabeler
                 var foundCropLabel: String? = null
-                var foundCropConfidence = 0.70f
+                var foundCropConfidence = 0.72f
 
                 if (sourceBitmap != null && !sourceBitmap.isRecycled) {
                     val cropLeft = (obj.boundingBox.left * scaleX).toInt().coerceIn(0, sourceBitmap.width - 1)

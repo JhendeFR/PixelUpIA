@@ -7,11 +7,13 @@ import com.jhendefr.pixelupia.domain.model.MediaOperationResult
 import com.jhendefr.pixelupia.domain.model.Photo
 import com.jhendefr.pixelupia.domain.usecase.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class GalleryViewModel(
     private val getPhotosUseCase: GetPhotosUseCase,
     private val getAlbumsUseCase: GetAlbumsUseCase,
@@ -32,29 +34,74 @@ class GalleryViewModel(
     private val manageFaceClusterUseCase: com.jhendefr.pixelupia.domain.usecase.ManageFaceClusterUseCase? = null,
     private val getPhotosForClusterUseCase: com.jhendefr.pixelupia.domain.usecase.GetPhotosForClusterUseCase? = null,
     private val smartCollageGenerator: com.jhendefr.pixelupia.domain.usecase.SmartCollageGenerator = com.jhendefr.pixelupia.domain.usecase.SmartCollageGenerator(),
-    private val context: android.content.Context? = null
+    private val context: android.content.Context? = null,
+    private val smartGalleryDao: com.jhendefr.pixelupia.data.local.room.SmartGalleryDao? = null,
+    private val generateSmartMemoriesUseCase: com.jhendefr.pixelupia.domain.usecase.GenerateSmartMemoriesUseCase? = null,
+    private val managePhotoTagsUseCase: com.jhendefr.pixelupia.domain.usecase.ManagePhotoTagsUseCase? = null
 ) : ViewModel() {
+
+    private val photoTagsManager = managePhotoTagsUseCase ?: smartGalleryDao?.let { com.jhendefr.pixelupia.domain.usecase.ManagePhotoTagsUseCase(it) }
 
     private val _uiState = MutableStateFlow(GalleryUiState())
     val uiState: StateFlow<GalleryUiState> = _uiState.asStateFlow()
 
     private val _searchQueryFlow = MutableStateFlow("")
+    private val _searchRefreshTrigger = MutableStateFlow(0L)
+    private var lastBannedSearchBatch: Pair<String, List<Long>>? = null
 
     private var cachedAllAppCollections: List<SmartCollectionItem> = emptyList()
     private var cachedAllVisualCollections: List<SmartCollectionItem> = emptyList()
     private var indexedFoldersJob: Job? = null
     private var clusterPhotosJob: Job? = null
+    private var smartCollectionsJob: Job? = null
 
     init {
         loadData()
         observeSmartPhotos()
         observePreferences()
         observeFaceClusters()
+        observeMemoryStories()
+        observeSemanticPhotos()
+        generateSmartMemories()
+    }
+
+    private fun observeSemanticPhotos() {
+        if (smartGalleryDao != null) {
+            viewModelScope.launch {
+                smartGalleryDao.getPhotosWithEmbeddingFlow().collect { list ->
+                    _uiState.update { it.copy(semanticPhotos = list) }
+                }
+            }
+        }
+    }
+
+    private fun observeMemoryStories() {
+        if (smartGalleryDao != null) {
+            viewModelScope.launch {
+                smartGalleryDao.getAllStories().collect { stories ->
+                    _uiState.update { it.copy(memoryStories = stories) }
+                }
+            }
+        }
+    }
+
+    private fun generateSmartMemories() {
+        val useCase = generateSmartMemoriesUseCase ?: return
+        viewModelScope.launch {
+            try {
+                useCase()
+            } catch (_: Exception) {}
+        }
     }
 
     private fun observeSmartPhotos() {
         viewModelScope.launch {
-            _searchQueryFlow
+            combine(
+                _searchQueryFlow
+                    .debounce(280L)
+                    .distinctUntilChanged(),
+                _searchRefreshTrigger
+            ) { query, _ -> query }
                 .flatMapLatest { query ->
                     searchSmartPhotosUseCase(query)
                 }
@@ -96,6 +143,12 @@ class GalleryViewModel(
                 _uiState.update { it.copy(showIndexedCount = show) }
             }
         }
+
+        viewModelScope.launch {
+            preferencesDataSource.activeFilterChipsFlow.collect { chips ->
+                _uiState.update { it.copy(activeFilterChips = chips) }
+            }
+        }
     }
 
     private fun observeIndexedFolders(photos: List<Photo>, chosenFolders: Set<String> = _uiState.value.chosenIndexFolders) {
@@ -112,7 +165,8 @@ class GalleryViewModel(
     }
 
     private fun observeSmartCollections(photos: List<Photo>) {
-        viewModelScope.launch {
+        smartCollectionsJob?.cancel()
+        smartCollectionsJob = viewModelScope.launch {
             getSmartCollectionsUseCase(photos)
                 .catch { error ->
                     _uiState.update { it.copy(errorMessage = error.message) }
@@ -140,16 +194,31 @@ class GalleryViewModel(
                 loadData()
             }
             is GalleryEvent.SelectTab -> {
-                _uiState.update { it.copy(selectedTab = event.tab) }
+                _uiState.update {
+                    it.copy(
+                        selectedTab = event.tab,
+                        selectedPhotoIds = emptySet()
+                    )
+                }
             }
             is GalleryEvent.SelectAlbum -> {
                 _uiState.update { it.copy(selectedAlbumName = event.albumName) }
             }
             is GalleryEvent.SelectIndexedFolder -> {
-                _uiState.update { it.copy(selectedIndexedFolderName = event.folderName) }
+                _uiState.update {
+                    it.copy(
+                        selectedIndexedFolderName = event.folderName,
+                        selectedPhotoIds = emptySet()
+                    )
+                }
             }
             is GalleryEvent.SelectSmartCollection -> {
-                _uiState.update { it.copy(selectedSmartCollection = event.collection) }
+                _uiState.update {
+                    it.copy(
+                        selectedSmartCollection = event.collection,
+                        selectedPhotoIds = emptySet()
+                    )
+                }
             }
             is GalleryEvent.TriggerBatchIndexFolder -> {
                 val folderPhotos = _uiState.value.photos.filter {
@@ -187,7 +256,11 @@ class GalleryViewModel(
                             userMessage = "Analisis inteligente completado para ${event.folderName}"
                         )
                     }
+                    generateSmartMemories()
                 }
+            }
+            GalleryEvent.RebuildAllClustersAndReEnrich -> {
+                rebuildAllClustersAndReEnrich()
             }
             is GalleryEvent.TogglePhotoSelection -> {
                 val currentSelection = _uiState.value.selectedPhotoIds.toMutableSet()
@@ -205,19 +278,59 @@ class GalleryViewModel(
                 }
             }
             is GalleryEvent.UpdateSmartSearchQuery -> {
-                _uiState.update { it.copy(smartSearchQuery = event.query) }
+                val changed = _uiState.value.smartSearchQuery != event.query
+                _uiState.update {
+                    if (changed) {
+                        it.copy(
+                            smartSearchQuery = event.query,
+                            selectedPhotoIds = emptySet()
+                        )
+                    } else {
+                        it.copy(smartSearchQuery = event.query)
+                    }
+                }
                 _searchQueryFlow.value = event.query
             }
             GalleryEvent.SelectAll -> {
-                val allIds = when (_uiState.value.selectedTab) {
-                    GalleryTab.PHOTOS -> _uiState.value.photos.map { it.id }.toSet()
-                    GalleryTab.SMART_AI -> _uiState.value.smartPhotos.map { it.id }.toSet()
+                val state = _uiState.value
+                val allIds = when (state.selectedTab) {
+                    GalleryTab.PHOTOS -> state.photos.map { it.id }.toSet()
                     GalleryTab.ALBUMS -> emptySet()
+                    GalleryTab.SMART_AI -> when {
+                        state.selectedFaceCluster != null -> state.selectedFaceClusterPhotos.map { it.id }.toSet()
+                        state.selectedSmartCollection != null -> {
+                            val q = state.smartSearchQuery
+                            val list = if (q.isBlank()) {
+                                state.selectedSmartCollection.photos
+                            } else {
+                                state.selectedSmartCollection.photos.filter {
+                                    it.name.contains(q, ignoreCase = true) ||
+                                        (it.sourceApp?.contains(q, ignoreCase = true) == true)
+                                }
+                            }
+                            list.map { it.id }.toSet()
+                        }
+                        state.selectedIndexedFolderName != null -> {
+                            val folder = state.selectedIndexedFolderName
+                            val base = if (state.smartSearchQuery.isEmpty()) state.photos else state.smartPhotos
+                            base.filter {
+                                it.folderName.equals(folder, ignoreCase = true) ||
+                                    it.folderName.contains(folder, ignoreCase = true)
+                            }.map { it.id }.toSet()
+                        }
+                        else -> state.smartPhotos.map { it.id }.toSet()
+                    }
                 }
                 _uiState.update { it.copy(selectedPhotoIds = allIds) }
             }
             GalleryEvent.ClearSelection -> {
                 _uiState.update { it.copy(selectedPhotoIds = emptySet()) }
+            }
+            GalleryEvent.BanSelectedPhotosFromSearch -> {
+                banSelectedPhotosFromCurrentSearch()
+            }
+            GalleryEvent.UndoLastSearchBan -> {
+                undoLastSearchBan()
             }
             is GalleryEvent.SelectFaceCluster -> {
                 clusterPhotosJob?.cancel()
@@ -252,11 +365,7 @@ class GalleryViewModel(
             is GalleryEvent.AddPhotoToFaceCluster -> {
                 viewModelScope.launch {
                     val bitmap = context?.let { ctx ->
-                        runCatching {
-                            ctx.contentResolver.openInputStream(event.photo.uri)?.use { stream ->
-                                android.graphics.BitmapFactory.decodeStream(stream)
-                            }
-                        }.getOrNull()
+                        com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(ctx, event.photo.uri)
                     }
                     manageFaceClusterUseCase?.addPhotoToCluster(event.photo, event.clusterId, bitmap)
                     _uiState.update { it.copy(userMessage = "Foto agregada al grupo") }
@@ -272,11 +381,7 @@ class GalleryViewModel(
                     val photo = _uiState.value.photos.find { it.id == event.photoId }
                     val bitmap = photo?.let { p ->
                         context?.let { ctx ->
-                            runCatching {
-                                ctx.contentResolver.openInputStream(p.uri)?.use { stream ->
-                                    android.graphics.BitmapFactory.decodeStream(stream)
-                                }
-                            }.getOrNull()
+                            com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(ctx, p.uri)
                         }
                     }
                     manageFaceClusterUseCase?.removePhotoFromCluster(event.photoId, event.clusterId, bitmap)
@@ -286,11 +391,7 @@ class GalleryViewModel(
             is GalleryEvent.SetClusterCover -> {
                 viewModelScope.launch {
                     val bitmap = context?.let { ctx ->
-                        runCatching {
-                            ctx.contentResolver.openInputStream(event.photo.uri)?.use { stream ->
-                                android.graphics.BitmapFactory.decodeStream(stream)
-                            }
-                        }.getOrNull()
+                        com.jhendefr.pixelupia.data.ml.ImageUtils.loadCorrectlyOrientedBitmap(ctx, event.photo.uri)
                     }
                     manageFaceClusterUseCase?.setClusterCover(event.clusterId, event.photo, bitmap)
                     _uiState.update { state ->
@@ -386,6 +487,41 @@ class GalleryViewModel(
             }
             is GalleryEvent.ToggleHiddenCollectionsDialog -> {
                 _uiState.update { it.copy(showHiddenCollectionsDialog = event.show) }
+            }
+            is GalleryEvent.RemovePhotosFromSmartCollection -> {
+                viewModelScope.launch {
+                    val manager = photoTagsManager
+                    for (photoId in event.photoIds) {
+                        manager?.removeTag(photoId, event.collection.title)
+                        if (event.collection.type == com.jhendefr.pixelupia.domain.usecase.SmartCollectionType.SOURCE_APP) {
+                            smartGalleryDao?.updatePhotoSourceApp(photoId, "")
+                        }
+                    }
+                    _uiState.update {
+                        it.copy(
+                            userMessage = if (event.photoIds.size == 1) "Foto quitada del álbum" else "${event.photoIds.size} fotos quitadas del álbum",
+                            selectedPhotoIds = emptySet()
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.AddPhotoToSmartCollection -> {
+                viewModelScope.launch {
+                    val manager = photoTagsManager
+                    manager?.addTag(event.photo.id, event.collection.title)
+                    if (event.collection.type == com.jhendefr.pixelupia.domain.usecase.SmartCollectionType.SOURCE_APP) {
+                        smartGalleryDao?.updatePhotoSourceApp(event.photo.id, event.collection.title)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            userMessage = "Foto añadida a '${event.collection.title}'",
+                            showAddPhotosToCollectionDialog = false
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.ToggleAddPhotosToCollectionDialog -> {
+                _uiState.update { it.copy(showAddPhotosToCollectionDialog = event.show) }
             }
 
             // Carpetas de Indexacion Dinamicas
@@ -572,8 +708,181 @@ class GalleryViewModel(
                 }
             }
             GalleryEvent.ClearUserMessage -> {
-                _uiState.update { it.copy(userMessage = null, errorMessage = null) }
+                _uiState.update { it.copy(userMessage = null, errorMessage = null, canUndoLastSearchBan = false) }
             }
+
+            // Recuerdos Inteligentes (Smart Moments)
+            is GalleryEvent.OpenStory -> {
+                viewModelScope.launch {
+                    val photos = smartGalleryDao?.getPhotosByIds(event.story.photoIds) ?: emptyList()
+                    _uiState.update {
+                        it.copy(
+                            activeStory = event.story,
+                            activeStoryPhotos = photos
+                        )
+                    }
+                }
+            }
+            GalleryEvent.CloseStory -> {
+                _uiState.update {
+                    it.copy(
+                        activeStory = null,
+                        activeStoryPhotos = emptyList()
+                    )
+                }
+            }
+            GalleryEvent.GenerateMemories -> {
+                generateSmartMemories()
+            }
+            is GalleryEvent.OpenEditStoryName -> {
+                _uiState.update { it.copy(storyToEditName = event.story) }
+            }
+            is GalleryEvent.RenameStory -> {
+                viewModelScope.launch {
+                    smartGalleryDao?.updateStoryTitle(event.storyId, event.newTitle)
+                    _uiState.update { it.copy(storyToEditName = null, userMessage = "Nombre del recuerdo actualizado") }
+                }
+            }
+            is GalleryEvent.OpenAddPhotosToStory -> {
+                _uiState.update { it.copy(storyToAddPhotos = event.story) }
+            }
+            is GalleryEvent.AddPhotosToStory -> {
+                viewModelScope.launch {
+                    val story = smartGalleryDao?.getStoryById(event.storyId) ?: return@launch
+                    val currentPhotos = story.photoIds.toMutableList()
+                    event.newPhotoIds.forEach { if (!currentPhotos.contains(it)) currentPhotos.add(it) }
+                    val subtitle = "${currentPhotos.size} fotos destacadas"
+                    smartGalleryDao.updateStoryPhotos(event.storyId, currentPhotos, subtitle, story.coverUri)
+                    _uiState.update { it.copy(storyToAddPhotos = null, userMessage = "Fotos añadidas al recuerdo") }
+                    if (_uiState.value.activeStory?.storyId == event.storyId) {
+                        val photos = smartGalleryDao.getPhotosByIds(currentPhotos)
+                        val updatedStory = smartGalleryDao.getStoryById(event.storyId)
+                        _uiState.update { it.copy(activeStory = updatedStory, activeStoryPhotos = photos) }
+                    }
+                }
+            }
+            is GalleryEvent.OpenManageStoryPhotos -> {
+                _uiState.update { it.copy(storyToManagePhotos = event.story) }
+            }
+            is GalleryEvent.RemovePhotoFromStory -> {
+                viewModelScope.launch {
+                    val story = smartGalleryDao?.getStoryById(event.storyId) ?: return@launch
+                    val currentPhotos = story.photoIds.toMutableList()
+                    currentPhotos.remove(event.photoId)
+                    if (currentPhotos.isEmpty()) {
+                        smartGalleryDao.deleteStoryById(event.storyId)
+                        _uiState.update { it.copy(activeStory = null, activeStoryPhotos = emptyList(), storyToManagePhotos = null, userMessage = "Recuerdo eliminado por falta de fotos") }
+                    } else {
+                        val newCoverUri = if (story.coverUri.contains(event.photoId.toString())) {
+                            val firstPhoto = smartGalleryDao.getPhotoById(currentPhotos.first())
+                            firstPhoto?.uri ?: story.coverUri
+                        } else {
+                            story.coverUri
+                        }
+                        val subtitle = "${currentPhotos.size} fotos destacadas"
+                        smartGalleryDao.updateStoryPhotos(event.storyId, currentPhotos, subtitle, newCoverUri)
+                        _uiState.update { it.copy(userMessage = "Foto eliminada del recuerdo") }
+                        if (_uiState.value.activeStory?.storyId == event.storyId) {
+                            val photos = smartGalleryDao.getPhotosByIds(currentPhotos)
+                            val updatedStory = smartGalleryDao.getStoryById(event.storyId)
+                            _uiState.update { it.copy(activeStory = updatedStory, activeStoryPhotos = photos) }
+                        }
+                    }
+                }
+            }
+            is GalleryEvent.ToggleStoryPinned -> {
+                viewModelScope.launch {
+                    smartGalleryDao?.updateStoryPinned(event.storyId, event.isPinned)
+                    val msg = if (event.isPinned) "Recuerdo fijado" else "Recuerdo desfijado"
+                    _uiState.update { it.copy(userMessage = msg) }
+                }
+            }
+            is GalleryEvent.DeleteStory -> {
+                viewModelScope.launch {
+                    smartGalleryDao?.deleteStoryById(event.storyId)
+                    _uiState.update {
+                        if (it.activeStory?.storyId == event.storyId) {
+                            it.copy(activeStory = null, activeStoryPhotos = emptyList(), userMessage = "Recuerdo eliminado")
+                        } else {
+                            it.copy(userMessage = "Recuerdo eliminado")
+                        }
+                    }
+                }
+            }
+            is GalleryEvent.ToggleCreateManualStoryDialog -> {
+                _uiState.update { it.copy(showCreateManualStoryDialog = event.show) }
+                if (event.show) {
+                    loadSuggestedMemories()
+                }
+            }
+            GalleryEvent.LoadSuggestedMemories -> {
+                loadSuggestedMemories()
+            }
+            is GalleryEvent.CreateStoryFromSuggestion -> {
+                viewModelScope.launch {
+                    val storyToSave = event.suggestion.copy(
+                        isPinned = true,
+                        isManual = true
+                    )
+                    smartGalleryDao?.insertStory(storyToSave)
+                    _uiState.update { state ->
+                        state.copy(
+                            suggestedMemories = state.suggestedMemories.filterNot { it.title == event.suggestion.title },
+                            showCreateManualStoryDialog = false,
+                            userMessage = "Recuerdo '${event.suggestion.title}' creado"
+                        )
+                    }
+                }
+            }
+            is GalleryEvent.CreateManualStory -> {
+                viewModelScope.launch {
+                    if (event.photoIds.isNotEmpty()) {
+                        val firstPhoto = smartGalleryDao?.getPhotoById(event.photoIds.first())
+                        val cover = firstPhoto?.uri ?: ""
+                        val newStory = com.jhendefr.pixelupia.data.local.room.MemoryStoryEntity(
+                            title = event.title.ifBlank { "Mi Recuerdo" },
+                            subtitle = "${event.photoIds.size} fotos",
+                            coverUri = cover,
+                            photoIds = event.photoIds,
+                            storyType = "EVENT",
+                            isPinned = true,
+                            isManual = true
+                        )
+                        smartGalleryDao?.insertStory(newStory)
+                        _uiState.update { it.copy(showCreateManualStoryDialog = false, userMessage = "Recuerdo creado con exito") }
+                    }
+                }
+            }
+            is GalleryEvent.ToggleMomentsCollageView -> {
+                _uiState.update { it.copy(showMomentsCollageView = event.show) }
+            }
+            is GalleryEvent.ToggleCustomizeFilterChipsDialog -> {
+                _uiState.update { it.copy(showCustomizeFilterChipsDialog = event.show) }
+            }
+            is GalleryEvent.SaveActiveFilterChips -> {
+                preferencesDataSource.saveActiveFilterChips(event.chips)
+                _uiState.update { it.copy(showCustomizeFilterChipsDialog = false, userMessage = "Filtros personalizados actualizados") }
+            }
+            GalleryEvent.ResetFilterChipsToDefault -> {
+                preferencesDataSource.resetFilterChipsToDefault()
+                _uiState.update { it.copy(showCustomizeFilterChipsDialog = false, userMessage = "Filtros restablecidos") }
+            }
+            is GalleryEvent.ToggleSemanticPhotosDialog -> {
+                _uiState.update { it.copy(showSemanticPhotosDialog = event.show) }
+            }
+            GalleryEvent.ClearAllInferences -> {
+                clearAllInferences()
+            }
+        }
+    }
+
+    private fun loadSuggestedMemories() {
+        val useCase = generateSmartMemoriesUseCase ?: return
+        viewModelScope.launch {
+            try {
+                val candidates = useCase.generateCandidateMemories()
+                _uiState.update { it.copy(suggestedMemories = candidates) }
+            } catch (_: Exception) {}
         }
     }
 
@@ -615,6 +924,113 @@ class GalleryViewModel(
         viewModelScope.launch {
             getFaceClustersUseCase().collect { clusters ->
                 _uiState.update { it.copy(faceClusters = clusters) }
+            }
+        }
+    }
+
+    fun rebuildAllClustersAndReEnrich() {
+        viewModelScope.launch {
+            manageFaceClusterUseCase?.rebuildAllClustersFromScratch()
+                ?: smartGalleryDao?.let { dao ->
+                    dao.clearAllPhotoClusterCrossRefs()
+                    dao.clearAllFaceClusters()
+                    dao.markAllPhotosForReEnrichment()
+                }
+            context?.let { ctx ->
+                com.jhendefr.pixelupia.data.worker.WorkManagerScheduler.triggerOneTimeEnrichment(ctx)
+            }
+            _uiState.update { it.copy(userMessage = "Re-indexado y clustering reiniciado") }
+        }
+    }
+
+    private fun banSelectedPhotosFromCurrentSearch() {
+        val state = _uiState.value
+        val selectedIds = state.selectedPhotoIds.toList()
+        val cleanQuery = state.smartSearchQuery.trim()
+        if (selectedIds.isEmpty() || cleanQuery.isBlank()) return
+
+        val selectedIdSet = selectedIds.toSet()
+        lastBannedSearchBatch = cleanQuery to selectedIds
+
+        // Actualizar optimista en memoria para desaparicion inmediata en la grilla
+        _uiState.update {
+            it.copy(
+                smartPhotos = it.smartPhotos.filterNot { photo -> selectedIdSet.contains(photo.id) },
+                selectedPhotoIds = emptySet()
+            )
+        }
+
+        viewModelScope.launch {
+            val result = photoTagsManager?.banPhotosFromSearch(selectedIds, cleanQuery)
+            if (result == null || result.isFailure) {
+                lastBannedSearchBatch = null
+                _searchRefreshTrigger.value += 1
+                _uiState.update {
+                    it.copy(
+                        canUndoLastSearchBan = false,
+                        errorMessage = "No se pudieron excluir las imágenes seleccionadas"
+                    )
+                }
+            } else {
+                _searchRefreshTrigger.value += 1
+                val msg = if (selectedIds.size == 1) {
+                    "1 imagen ocultada al buscar '$cleanQuery'"
+                } else {
+                    "${selectedIds.size} imágenes ocultadas al buscar '$cleanQuery'"
+                }
+                _uiState.update {
+                    it.copy(
+                        canUndoLastSearchBan = true,
+                        userMessage = msg
+                    )
+                }
+            }
+        }
+    }
+
+    private fun undoLastSearchBan() {
+        val batch = lastBannedSearchBatch ?: return
+        lastBannedSearchBatch = null
+        val (query, ids) = batch
+        viewModelScope.launch {
+            photoTagsManager?.unbanPhotosFromSearch(ids, query)
+            _searchRefreshTrigger.value += 1
+            _uiState.update {
+                it.copy(
+                    canUndoLastSearchBan = false,
+                    userMessage = "Exclusión revertida para '$query'"
+                )
+            }
+        }
+    }
+
+    fun clearAllInferences() {
+        lastBannedSearchBatch = null
+        viewModelScope.launch(Dispatchers.IO) {
+            smartGalleryDao?.let { dao ->
+                dao.clearAllSmartPhotos()
+                dao.clearAllSmartPhotosFts()
+                dao.clearAllPhotoClusterCrossRefs()
+                dao.clearAllFaceClusters()
+                dao.clearAllStories()
+            }
+            context?.let { ctx ->
+                androidx.work.WorkManager.getInstance(ctx).cancelAllWork()
+            }
+            _uiState.update {
+                it.copy(
+                    smartPhotos = emptyList(),
+                    faceClusters = emptyList(),
+                    memoryStories = emptyList(),
+                    semanticPhotos = emptyList(),
+                    smartSearchQuery = "",
+                    selectedPhotoIds = emptySet(),
+                    canUndoLastSearchBan = false,
+                    userMessage = "Se han limpiado todas las inferencias y datos de la base de datos"
+                )
+            }
+            if (_uiState.value.photos.isNotEmpty()) {
+                observeIndexedFolders(_uiState.value.photos, _uiState.value.chosenIndexFolders)
             }
         }
     }

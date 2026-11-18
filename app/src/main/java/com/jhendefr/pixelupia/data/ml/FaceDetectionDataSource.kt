@@ -53,10 +53,9 @@ class FaceDetectionDataSource(private val context: Context) {
                     val validFaces = faces.filter { face ->
                         val box = face.boundingBox
 
-                        // 1. Filtrar cajas diminutas (emojis, iconos, stickers)
                         val hasValidSize = box.width() >= minBoxSize && box.height() >= minBoxSize
 
-                        // 2. Validacion anatomica para descartar emojis y dibujos planos
+                        // Validacion anatomica
                         val hasLeftEye = face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.LEFT_EYE) != null
                         val hasRightEye = face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.RIGHT_EYE) != null
                         val hasNose = face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.NOSE_BASE) != null

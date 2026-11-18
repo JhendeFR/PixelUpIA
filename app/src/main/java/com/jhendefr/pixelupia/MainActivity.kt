@@ -35,7 +35,9 @@ import com.jhendefr.pixelupia.data.worker.WorkManagerScheduler
 import com.jhendefr.pixelupia.domain.usecase.*
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailScreen
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailViewModel
+import com.jhendefr.pixelupia.ui.gallery.GalleryEvent
 import com.jhendefr.pixelupia.ui.gallery.GalleryScreen
+import com.jhendefr.pixelupia.ui.gallery.GalleryTab
 import com.jhendefr.pixelupia.ui.gallery.GalleryViewModel
 import com.jhendefr.pixelupia.ui.theme.PixelUpIATheme
 import com.jhendefr.pixelupia.ui.viewer.ViewerScreen
@@ -59,7 +61,8 @@ class MainActivity : ComponentActivity() {
         val repository = MediaRepositoryImpl(applicationContext, mediaStoreDataSource)
 
         val snapVaultDb = SnapVaultDatabase.getInstance(applicationContext)
-        val smartPhotoRepository = SmartPhotoRepositoryImpl(snapVaultDb.smartGalleryDao())
+        val mobileClipDataSource = com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource(applicationContext)
+        val smartPhotoRepository = SmartPhotoRepositoryImpl(snapVaultDb.smartGalleryDao(), mobileClipDataSource)
         val textRecognitionDataSource = TextRecognitionDataSource(applicationContext)
 
         // ML Kit Multimodal Data Sources
@@ -87,7 +90,9 @@ class MainActivity : ComponentActivity() {
         val faceClusteringService = com.jhendefr.pixelupia.data.ml.FaceClusteringService(
             faceEmbeddingDataSource = faceEmbeddingDataSource,
             petEmbeddingDataSource = petEmbeddingDataSource,
-            smartGalleryDao = snapVaultDb.smartGalleryDao()
+            smartGalleryDao = snapVaultDb.smartGalleryDao(),
+            faceDetectionDataSource = faceDetectionDataSource,
+            objectDetectionDataSource = objectDetectionDataSource
         )
         val getFaceClustersUseCase = com.jhendefr.pixelupia.domain.usecase.GetFaceClustersUseCase(snapVaultDb.smartGalleryDao())
         val manageFaceClusterUseCase = com.jhendefr.pixelupia.domain.usecase.ManageFaceClusterUseCase(
@@ -106,23 +111,29 @@ class MainActivity : ComponentActivity() {
             textRecognitionDataSource = textRecognitionDataSource,
             context = applicationContext,
             faceClusteringService = faceClusteringService,
-            objectDetectionDataSource = objectDetectionDataSource
+            objectDetectionDataSource = objectDetectionDataSource,
+            mobileClipDataSource = mobileClipDataSource
         )
         val enrichFolderScreenshotsUseCase = EnrichFolderScreenshotsUseCase(
             enrichScreenshotUseCase = enrichScreenshotUseCase,
             smartGalleryDao = snapVaultDb.smartGalleryDao()
         )
         val getPhotoMultimodalMetadataUseCase = GetPhotoMultimodalMetadataUseCase(
-            smartGalleryDao = snapVaultDb.smartGalleryDao()
+            smartGalleryDao = snapVaultDb.smartGalleryDao(),
+            mobileClipDataSource = mobileClipDataSource
         )
         val getSmartCollectionsUseCase = com.jhendefr.pixelupia.domain.usecase.GetSmartCollectionsUseCase(
             smartGalleryDao = snapVaultDb.smartGalleryDao()
         )
         val smartGalleryPreferencesDataSource = com.jhendefr.pixelupia.data.local.SmartGalleryPreferencesDataSource(applicationContext)
         val unindexPhotoUseCase = UnindexPhotoUseCase(smartPhotoRepository)
+        val generateSmartMemoriesUseCase = com.jhendefr.pixelupia.domain.usecase.GenerateSmartMemoriesUseCase(
+            smartGalleryDao = snapVaultDb.smartGalleryDao(),
+            mobileClipDataSource = mobileClipDataSource
+        )
 
-        // Programar enriquecimiento multimodal periodico con WorkManager
-        WorkManagerScheduler.schedulePeriodicEnrichment(applicationContext)
+        // Indexacion automatica en segundo plano desactivada
+        androidx.work.WorkManager.getInstance(applicationContext).cancelUniqueWork("MultimodalEnrichmentPeriodic")
 
         val galleryViewModelFactory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -146,7 +157,10 @@ class MainActivity : ComponentActivity() {
                     getFaceClustersUseCase = getFaceClustersUseCase,
                     manageFaceClusterUseCase = manageFaceClusterUseCase,
                     getPhotosForClusterUseCase = getPhotosForClusterUseCase,
-                    context = applicationContext
+                    context = applicationContext,
+                    smartGalleryDao = snapVaultDb.smartGalleryDao(),
+                    generateSmartMemoriesUseCase = generateSmartMemoriesUseCase,
+                    managePhotoTagsUseCase = managePhotoTagsUseCase
                 ) as T
             }
         }
@@ -268,6 +282,14 @@ class MainActivity : ComponentActivity() {
                             ViewerScreen(
                                 viewModel = viewerViewModel,
                                 isFromAi = fromAi,
+                                onSearchSuggestion = { query ->
+                                    galleryViewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.SMART_AI))
+                                    galleryViewModel.onEvent(GalleryEvent.SelectFaceCluster(null))
+                                    galleryViewModel.onEvent(GalleryEvent.SelectSmartCollection(null))
+                                    galleryViewModel.onEvent(GalleryEvent.SelectIndexedFolder(null))
+                                    galleryViewModel.onEvent(GalleryEvent.UpdateSmartSearchQuery(query))
+                                    navController.popBackStack("gallery", inclusive = false)
+                                },
                                 onBackClick = { navController.popBackStack() }
                             )
                         }
@@ -279,24 +301,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            try {
-                screenCaptureCallback = Activity.ScreenCaptureCallback {
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        delay(700)
-                        val latestScreenshot = mediaStoreDataSource.fetchLatestScreenshot()
-                        if (latestScreenshot != null) {
-                            indexScreenshotUseCase(latestScreenshot)
-                            WorkManagerScheduler.triggerOneTimeEnrichment(applicationContext)
-                        }
-                    }
-                }
-                registerScreenCaptureCallback(mainExecutor, screenCaptureCallback!!)
-            } catch (e: SecurityException) {
-                // Manejo de seguridad en caso de que el permiso no este disponible
-                screenCaptureCallback = null
-            }
-        }
+        // Indexacion automatica de screenshots al capturar desactivada
     }
 
     override fun onStop() {

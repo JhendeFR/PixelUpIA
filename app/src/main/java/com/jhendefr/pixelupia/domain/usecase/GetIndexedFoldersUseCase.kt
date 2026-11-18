@@ -11,11 +11,11 @@ class GetIndexedFoldersUseCase(
 ) {
     operator fun invoke(
         allPhotos: List<Photo>,
-        chosenFolderNames: Set<String> = setOf("Screenshots")
+        chosenFolderNames: Set<String> = emptySet()
     ): Flow<List<IndexedFolderInfo>> {
         return smartPhotoRepository.getIndexedPhotoIds().map { indexedIds ->
             val indexedSet = indexedIds.toSet()
-            val foldersToProcess = if (chosenFolderNames.isEmpty()) setOf("Screenshots") else chosenFolderNames
+            val foldersToProcess = chosenFolderNames
 
             foldersToProcess.map { folderName ->
                 val folderPhotos = allPhotos.filter {

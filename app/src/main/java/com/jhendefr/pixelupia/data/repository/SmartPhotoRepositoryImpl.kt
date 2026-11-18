@@ -12,8 +12,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class SmartPhotoRepositoryImpl(
-    private val dao: SmartGalleryDao
+    private val dao: SmartGalleryDao,
+    private val mobileClipDataSource: com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource? = null
 ) : SmartPhotoRepository {
+
+    private val queryEmbeddingCache = android.util.LruCache<String, List<FloatArray>>(30)
 
     override suspend fun indexPhoto(
         photo: Photo,
@@ -28,17 +31,31 @@ class SmartPhotoRepositoryImpl(
                 textContent
             }.trim()
 
-            val entity = SmartPhotoEntity(
-                photoId = photo.id,
-                uri = photo.uri.toString(),
-                name = photo.name,
-                folderName = photo.folderName,
-                dateAdded = photo.dateTaken,
-                textContent = textContent,
-                boundingBoxes = boundingBoxes,
-                sourceApp = sourceApp,
-                searchContent = searchContent
-            )
+            val existing = dao.getPhotoById(photo.id)
+            val entity = if (existing != null) {
+                existing.copy(
+                    uri = photo.uri.toString(),
+                    name = photo.name,
+                    folderName = photo.folderName,
+                    dateAdded = photo.dateTaken,
+                    textContent = textContent,
+                    boundingBoxes = boundingBoxes,
+                    sourceApp = existing.sourceApp ?: sourceApp,
+                    searchContent = if (existing.searchContent.isBlank()) searchContent else existing.searchContent
+                )
+            } else {
+                SmartPhotoEntity(
+                    photoId = photo.id,
+                    uri = photo.uri.toString(),
+                    name = photo.name,
+                    folderName = photo.folderName,
+                    dateAdded = photo.dateTaken,
+                    textContent = textContent,
+                    boundingBoxes = boundingBoxes,
+                    sourceApp = sourceApp,
+                    searchContent = searchContent
+                )
+            }
             dao.insertPhoto(entity)
             Result.success(Unit)
         } catch (e: Exception) {
@@ -47,14 +64,17 @@ class SmartPhotoRepositoryImpl(
     }
 
     override fun searchPhotos(query: String): Flow<List<Photo>> {
-        val sanitized = query.trim().replace(Regex("[^\\p{L}\\p{Nd}]+"), " ").trim()
-        val tokens = sanitized.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-        if (tokens.isEmpty()) {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isEmpty()) {
             return dao.searchPhotosByText("").map { emptyList() }
         }
 
-        val tokenClauses = tokens.map { token ->
-            val synonyms = com.jhendefr.pixelupia.data.ml.SynonymRegistry.getSynonyms(token).take(8)
+        val stopWords = setOf("de", "la", "el", "en", "con", "un", "una", "los", "las", "del", "al", "por", "para")
+        val sanitized = cleanQuery.replace(Regex("[^\\p{L}\\p{Nd}]+"), " ").trim()
+        val rawTokens = sanitized.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        val tokens = rawTokens.filter { it.lowercase(java.util.Locale.ROOT) !in stopWords }.ifEmpty { rawTokens }
+        val alternativesList = tokens.map { token ->
+            val synonyms = com.jhendefr.pixelupia.data.ml.SynonymRegistry.getSearchQuerySynonyms(token).take(8)
             val alternatives = (listOf(token) + synonyms).distinct()
             if (alternatives.size == 1) {
                 "${alternatives.first()}*"
@@ -62,22 +82,149 @@ class SmartPhotoRepositoryImpl(
                 alternatives.joinToString(separator = " OR ", prefix = "(", postfix = ")") { "$it*" }
             }
         }
-        val ftsQuery = tokenClauses.joinToString(" ")
+        val ftsAndQuery = alternativesList.joinToString(" ")
 
-        return dao.searchPhotosByText(ftsQuery).map { entities ->
-            entities.map { entity ->
-                Photo(
-                    id = entity.photoId,
-                    uri = Uri.parse(entity.uri),
-                    name = entity.name,
-                    dateTaken = entity.dateAdded,
-                    size = 0L,
-                    folderName = entity.folderName,
-                    mimeType = "image/*",
-                    sourceApp = entity.sourceApp
-                )
-            }
+        val ftsFlow = if (ftsAndQuery.isNotBlank()) {
+            dao.searchPhotosByText(ftsAndQuery)
+        } else {
+            kotlinx.coroutines.flow.flowOf(emptyList())
         }
+
+        return ftsFlow.map { rawFtsEntities ->
+            val clip = mobileClipDataSource
+            val effectiveFtsEntities = rawFtsEntities.filterNot { isPhotoBannedForQuery(it, cleanQuery) }
+
+            if (clip == null) {
+                return@map effectiveFtsEntities.map { toPhoto(it) }
+            }
+
+            // Inferencia semantica de texto con MobileCLIP-S0 expandida bilingue y cacheada
+            val queryEmbeddings = queryEmbeddingCache.get(cleanQuery) ?: run {
+                val generated = clip.extractQueryEmbeddings(cleanQuery)
+                if (generated.isNotEmpty()) {
+                    queryEmbeddingCache.put(cleanQuery, generated)
+                }
+                generated
+            }
+            if (queryEmbeddings.isEmpty()) {
+                return@map effectiveFtsEntities.map { toPhoto(it) }
+            }
+
+            val allWithEmbedding = dao.getPhotosWithEmbedding()
+            val semanticMatches = mutableListOf<Pair<SmartPhotoEntity, Float>>()
+
+            val queryLower = cleanQuery.lowercase(java.util.Locale.ROOT)
+            val isSearchingDog = (queryLower.contains("perro") || queryLower.contains("canino") ||
+                    queryLower.contains("cachorro") || queryLower.contains("dog") ||
+                    queryLower.contains("puppy")) &&
+                    !queryLower.contains("gato") && !queryLower.contains("cat") &&
+                    !queryLower.contains("felino") && !queryLower.contains("michi")
+
+            val isSearchingCat = (queryLower.contains("gato") || queryLower.contains("felino") ||
+                    queryLower.contains("gatito") || queryLower.contains("cat") ||
+                    queryLower.contains("kitten") || queryLower.contains("michi")) &&
+                    !queryLower.contains("perro") && !queryLower.contains("dog") &&
+                    !queryLower.contains("canino") && !queryLower.contains("cachorro")
+
+            for (photoEntity in allWithEmbedding) {
+                if (isPhotoBannedForQuery(photoEntity, cleanQuery)) continue
+
+                val base64 = photoEntity.semanticEmbedding ?: continue
+                try {
+                    val photoEmbedding = com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource.base64ToEmbedding(base64)
+                    var maxSimilarity = 0f
+                    for (qEmb in queryEmbeddings) {
+                        val similarity = com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource.cosineSimilarity(qEmb, photoEmbedding)
+                        if (similarity > maxSimilarity) {
+                            maxSimilarity = similarity
+                        }
+                    }
+                    if (maxSimilarity >= 0.23f) {
+                        val hasDogTag = photoEntity.labels.any { l ->
+                            val clean = if (l.contains(" - ")) l.substringBeforeLast(" - ") else l
+                            clean.contains("perro", ignoreCase = true) ||
+                            clean.contains("canino", ignoreCase = true) ||
+                            clean.contains("cachorro", ignoreCase = true) ||
+                            clean.contains("dog", ignoreCase = true)
+                        }
+                        val hasCatTag = photoEntity.labels.any { l ->
+                            val clean = if (l.contains(" - ")) l.substringBeforeLast(" - ") else l
+                            clean.contains("gato", ignoreCase = true) ||
+                            clean.contains("felino", ignoreCase = true) ||
+                            clean.contains("gatito", ignoreCase = true) ||
+                            clean.contains("cat", ignoreCase = true)
+                        }
+
+                        val isContradiction = (isSearchingDog && hasCatTag && !hasDogTag) ||
+                                              (isSearchingCat && hasDogTag && !hasCatTag)
+
+                        if (!isContradiction) {
+                            semanticMatches.add(Pair(photoEntity, maxSimilarity))
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignorar errores de deserializacion individual
+                }
+            }
+
+            // Ordenar por relevancia semantica y filtrar cola de baja confianza
+            semanticMatches.sortByDescending { it.second }
+            val bestSemanticScore = semanticMatches.firstOrNull()?.second ?: 0f
+            val filteredSemanticMatches = semanticMatches.filter { (_, sim) ->
+                sim >= 0.23f && sim >= (bestSemanticScore - 0.035f)
+            }
+
+            // Hybrid Score Fusion:
+            // 1. Fotos que coinciden tanto en effectiveFtsEntities como en filteredSemanticMatches (ordenadas por similitud)
+            // 2. Fotos de filteredSemanticMatches dentro de ventana adaptativa respecto al mejor resultado
+            // 3. Resto de coincidencias lexicas de effectiveFtsEntities
+            val seenIds = HashSet<Long>()
+            val combined = mutableListOf<Photo>()
+            val ftsPhotoIds = effectiveFtsEntities.map { it.photoId }.toSet()
+
+            // 1. Fotos que coinciden tanto en effectiveFtsEntities como en filteredSemanticMatches
+            for ((entity, _) in filteredSemanticMatches) {
+                if (ftsPhotoIds.contains(entity.photoId)) {
+                    if (seenIds.add(entity.photoId)) {
+                        combined.add(toPhoto(entity))
+                    }
+                }
+            }
+
+            // 2. Fotos de filteredSemanticMatches restantes
+            for ((entity, _) in filteredSemanticMatches) {
+                if (seenIds.add(entity.photoId)) {
+                    combined.add(toPhoto(entity))
+                }
+            }
+
+            // 3. Resto de coincidencias lexicas de effectiveFtsEntities
+            for (entity in effectiveFtsEntities) {
+                if (seenIds.add(entity.photoId)) {
+                    combined.add(toPhoto(entity))
+                }
+            }
+
+            combined
+        }
+    }
+
+    private fun isPhotoBannedForQuery(entity: SmartPhotoEntity, cleanQuery: String): Boolean {
+        return com.jhendefr.pixelupia.data.ml.SearchBanMatcher.isQueryExcluded(entity.bannedSearchQueries, cleanQuery) ||
+            com.jhendefr.pixelupia.data.ml.SearchBanMatcher.isQueryExcluded(entity.excludedTags, cleanQuery)
+    }
+
+    private fun toPhoto(entity: SmartPhotoEntity): Photo {
+        return Photo(
+            id = entity.photoId,
+            uri = Uri.parse(entity.uri),
+            name = entity.name,
+            dateTaken = entity.dateAdded,
+            size = 0L,
+            folderName = entity.folderName,
+            mimeType = "image/*",
+            sourceApp = entity.sourceApp
+        )
     }
 
     override fun getAllSmartPhotos(): Flow<List<Photo>> {
