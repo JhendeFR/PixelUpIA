@@ -181,7 +181,12 @@ class GetSmartCollectionsUseCase(
                             if (isAnimal || isFood) continue
                         }
 
-                        // 3. Excluir categorias no deseadas o con alta tasa de falsos positivos
+                        // 3. Excluir etiquetas de color (se mantienen en BD para busquedas pero no generan albumes visuales)
+                        if (com.jhendefr.pixelupia.data.ml.ColorAttributeExtractor.isColorLabel(labelName)) {
+                            continue
+                        }
+
+                        // 4. Excluir categorias no deseadas o con alta tasa de falsos positivos
                         val isNoisyCategory = lower == "objeto" ||
                                 lower == "objeto detectado" ||
                                 lower == "persona" ||
@@ -199,6 +204,9 @@ class GetSmartCollectionsUseCase(
 
                         if (labelName.isNotBlank() && !isNoisyCategory) {
                             val categoryTitle = pluralizeCategory(labelName)
+                            if (com.jhendefr.pixelupia.data.ml.ColorAttributeExtractor.isColorLabel(categoryTitle)) {
+                                continue
+                            }
                             val categoryLower = categoryTitle.lowercase(Locale.ROOT)
                             if (!excludedLowerSet.contains(categoryLower)) {
                                 val list = visualCategoryMap.getOrOrPut(categoryTitle) { mutableListOf() }

@@ -13,15 +13,15 @@ class GetPhotoMultimodalMetadataUseCase(
         val entity = smartGalleryDao.getPhotoById(photoId) ?: return@withContext null
 
         val hasEmbedding = !entity.semanticEmbedding.isNullOrBlank()
-        val clipPredictions = if (hasEmbedding && mobileClipDataSource != null) {
+        var clipPredictions: List<Pair<String, Float>> = emptyList()
+        var latentSuggestions: List<com.jhendefr.pixelupia.domain.model.LatentSearchSuggestion> = emptyList()
+        if (hasEmbedding && mobileClipDataSource != null) {
             try {
                 val vec = com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource.base64ToEmbedding(entity.semanticEmbedding!!)
-                mobileClipDataSource.predictZeroShotLabels(vec)
-            } catch (e: Exception) {
-                emptyList()
+                clipPredictions = mobileClipDataSource.predictZeroShotLabels(vec)
+                latentSuggestions = mobileClipDataSource.suggestSearchQueries(vec)
+            } catch (_: Exception) {
             }
-        } else {
-            emptyList()
         }
 
         MultimodalMetadata(
@@ -32,7 +32,8 @@ class GetPhotoMultimodalMetadataUseCase(
             entities = entity.entities,
             isEnriched = entity.isEnriched,
             hasSemanticEmbedding = hasEmbedding,
-            clipTopPredictions = clipPredictions
+            clipTopPredictions = clipPredictions,
+            latentSearchSuggestions = latentSuggestions
         )
     }
 }

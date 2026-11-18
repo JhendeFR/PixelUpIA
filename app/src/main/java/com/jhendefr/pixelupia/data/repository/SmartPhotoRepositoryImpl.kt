@@ -31,17 +31,31 @@ class SmartPhotoRepositoryImpl(
                 textContent
             }.trim()
 
-            val entity = SmartPhotoEntity(
-                photoId = photo.id,
-                uri = photo.uri.toString(),
-                name = photo.name,
-                folderName = photo.folderName,
-                dateAdded = photo.dateTaken,
-                textContent = textContent,
-                boundingBoxes = boundingBoxes,
-                sourceApp = sourceApp,
-                searchContent = searchContent
-            )
+            val existing = dao.getPhotoById(photo.id)
+            val entity = if (existing != null) {
+                existing.copy(
+                    uri = photo.uri.toString(),
+                    name = photo.name,
+                    folderName = photo.folderName,
+                    dateAdded = photo.dateTaken,
+                    textContent = textContent,
+                    boundingBoxes = boundingBoxes,
+                    sourceApp = existing.sourceApp ?: sourceApp,
+                    searchContent = if (existing.searchContent.isBlank()) searchContent else existing.searchContent
+                )
+            } else {
+                SmartPhotoEntity(
+                    photoId = photo.id,
+                    uri = photo.uri.toString(),
+                    name = photo.name,
+                    folderName = photo.folderName,
+                    dateAdded = photo.dateTaken,
+                    textContent = textContent,
+                    boundingBoxes = boundingBoxes,
+                    sourceApp = sourceApp,
+                    searchContent = searchContent
+                )
+            }
             dao.insertPhoto(entity)
             Result.success(Unit)
         } catch (e: Exception) {
@@ -55,8 +69,10 @@ class SmartPhotoRepositoryImpl(
             return dao.searchPhotosByText("").map { emptyList() }
         }
 
+        val stopWords = setOf("de", "la", "el", "en", "con", "un", "una", "los", "las", "del", "al", "por", "para")
         val sanitized = cleanQuery.replace(Regex("[^\\p{L}\\p{Nd}]+"), " ").trim()
-        val tokens = sanitized.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        val rawTokens = sanitized.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        val tokens = rawTokens.filter { it.lowercase(java.util.Locale.ROOT) !in stopWords }.ifEmpty { rawTokens }
         val alternativesList = tokens.map { token ->
             val synonyms = com.jhendefr.pixelupia.data.ml.SynonymRegistry.getSearchQuerySynonyms(token).take(8)
             val alternatives = (listOf(token) + synonyms).distinct()
@@ -67,7 +83,6 @@ class SmartPhotoRepositoryImpl(
             }
         }
         val ftsAndQuery = alternativesList.joinToString(" ")
-        val ftsOrQuery = alternativesList.joinToString(" OR ")
 
         val ftsFlow = if (ftsAndQuery.isNotBlank()) {
             dao.searchPhotosByText(ftsAndQuery)
@@ -75,17 +90,9 @@ class SmartPhotoRepositoryImpl(
             kotlinx.coroutines.flow.flowOf(emptyList())
         }
 
-        return ftsFlow.map { ftsEntities ->
+        return ftsFlow.map { rawFtsEntities ->
             val clip = mobileClipDataSource
-            val effectiveFtsEntities = if (ftsEntities.isEmpty() && tokens.size > 1 && ftsOrQuery.isNotBlank()) {
-                try {
-                    dao.searchPhotosByTextList(ftsOrQuery)
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            } else {
-                ftsEntities
-            }
+            val effectiveFtsEntities = rawFtsEntities.filterNot { isPhotoBannedForQuery(it, cleanQuery) }
 
             if (clip == null) {
                 return@map effectiveFtsEntities.map { toPhoto(it) }
@@ -120,10 +127,7 @@ class SmartPhotoRepositoryImpl(
                     !queryLower.contains("canino") && !queryLower.contains("cachorro")
 
             for (photoEntity in allWithEmbedding) {
-                val isExcluded = photoEntity.excludedTags.any { exc ->
-                    cleanQuery.contains(exc, ignoreCase = true) || exc.contains(cleanQuery, ignoreCase = true)
-                }
-                if (isExcluded) continue
+                if (isPhotoBannedForQuery(photoEntity, cleanQuery)) continue
 
                 val base64 = photoEntity.semanticEmbedding ?: continue
                 try {
@@ -135,7 +139,7 @@ class SmartPhotoRepositoryImpl(
                             maxSimilarity = similarity
                         }
                     }
-                    if (maxSimilarity >= 0.20f) {
+                    if (maxSimilarity >= 0.23f) {
                         val hasDogTag = photoEntity.labels.any { l ->
                             val clean = if (l.contains(" - ")) l.substringBeforeLast(" - ") else l
                             clean.contains("perro", ignoreCase = true) ||
@@ -163,19 +167,23 @@ class SmartPhotoRepositoryImpl(
                 }
             }
 
-            // Ordenar por relevancia semantica
+            // Ordenar por relevancia semantica y filtrar cola de baja confianza
             semanticMatches.sortByDescending { it.second }
+            val bestSemanticScore = semanticMatches.firstOrNull()?.second ?: 0f
+            val filteredSemanticMatches = semanticMatches.filter { (_, sim) ->
+                sim >= 0.23f && sim >= (bestSemanticScore - 0.035f)
+            }
 
             // Hybrid Score Fusion:
-            // 1. Fotos que coinciden tanto en effectiveFtsEntities como en semanticMatches (ordenadas por similitud)
-            // 2. Fotos de semanticMatches con similitud >= 0.20f
+            // 1. Fotos que coinciden tanto en effectiveFtsEntities como en filteredSemanticMatches (ordenadas por similitud)
+            // 2. Fotos de filteredSemanticMatches dentro de ventana adaptativa respecto al mejor resultado
             // 3. Resto de coincidencias lexicas de effectiveFtsEntities
             val seenIds = HashSet<Long>()
             val combined = mutableListOf<Photo>()
             val ftsPhotoIds = effectiveFtsEntities.map { it.photoId }.toSet()
 
-            // 1. Fotos que coinciden tanto en effectiveFtsEntities como en semanticMatches
-            for ((entity, _) in semanticMatches) {
+            // 1. Fotos que coinciden tanto en effectiveFtsEntities como en filteredSemanticMatches
+            for ((entity, _) in filteredSemanticMatches) {
                 if (ftsPhotoIds.contains(entity.photoId)) {
                     if (seenIds.add(entity.photoId)) {
                         combined.add(toPhoto(entity))
@@ -183,8 +191,8 @@ class SmartPhotoRepositoryImpl(
                 }
             }
 
-            // 2. Fotos de semanticMatches con similitud >= 0.20f restantes
-            for ((entity, _) in semanticMatches) {
+            // 2. Fotos de filteredSemanticMatches restantes
+            for ((entity, _) in filteredSemanticMatches) {
                 if (seenIds.add(entity.photoId)) {
                     combined.add(toPhoto(entity))
                 }
@@ -192,11 +200,6 @@ class SmartPhotoRepositoryImpl(
 
             // 3. Resto de coincidencias lexicas de effectiveFtsEntities
             for (entity in effectiveFtsEntities) {
-                val isExcluded = entity.excludedTags.any { exc ->
-                    cleanQuery.contains(exc, ignoreCase = true) || exc.contains(cleanQuery, ignoreCase = true)
-                }
-                if (isExcluded) continue
-
                 if (seenIds.add(entity.photoId)) {
                     combined.add(toPhoto(entity))
                 }
@@ -204,6 +207,11 @@ class SmartPhotoRepositoryImpl(
 
             combined
         }
+    }
+
+    private fun isPhotoBannedForQuery(entity: SmartPhotoEntity, cleanQuery: String): Boolean {
+        return com.jhendefr.pixelupia.data.ml.SearchBanMatcher.isQueryExcluded(entity.bannedSearchQueries, cleanQuery) ||
+            com.jhendefr.pixelupia.data.ml.SearchBanMatcher.isQueryExcluded(entity.excludedTags, cleanQuery)
     }
 
     private fun toPhoto(entity: SmartPhotoEntity): Photo {

@@ -120,10 +120,19 @@ fun GalleryScreen(
         }
     }
 
-    LaunchedEffect(uiState.userMessage) {
+    LaunchedEffect(uiState.userMessage, uiState.canUndoLastSearchBan) {
         uiState.userMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
-            viewModel.onEvent(GalleryEvent.ClearUserMessage)
+            val canUndo = uiState.canUndoLastSearchBan
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = if (canUndo) "Deshacer" else null,
+                duration = if (canUndo) SnackbarDuration.Long else SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed && canUndo) {
+                viewModel.onEvent(GalleryEvent.UndoLastSearchBan)
+            } else {
+                viewModel.onEvent(GalleryEvent.ClearUserMessage)
+            }
         }
     }
 
@@ -210,7 +219,10 @@ fun GalleryScreen(
     }
 
     if (uiState.showCustomizeFilterChipsDialog) {
-        val allDetectedCategories = uiState.visualCollections.map { it.title }.distinct()
+        val allDetectedCategories = uiState.visualCollections
+            .map { it.title }
+            .filterNot { com.jhendefr.pixelupia.data.ml.ColorAttributeExtractor.isColorLabel(it) }
+            .distinct()
         com.jhendefr.pixelupia.ui.gallery.components.CustomizeFilterChipsDialog(
             activeChips = uiState.activeFilterChips,
             availableSuggestions = allDetectedCategories,
@@ -625,7 +637,7 @@ fun GalleryScreen(
                                     )
                                 }
 
-                                // Boton contextual en modo IA: Quitar del album o Desindexar
+                                // Boton contextual en modo IA: Quitar del album, Banear de busqueda o Desindexar
                                 if (uiState.selectedTab == GalleryTab.SMART_AI) {
                                     if (uiState.selectedSmartCollection != null) {
                                         IconButton(
@@ -644,6 +656,19 @@ fun GalleryScreen(
                                             Icon(
                                                 imageVector = Icons.Default.FolderDelete,
                                                 contentDescription = "Quitar del album",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    } else if (uiState.smartSearchQuery.isNotBlank()) {
+                                        IconButton(
+                                            onClick = {
+                                                viewModel.onEvent(GalleryEvent.BanSelectedPhotosFromSearch)
+                                            },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.SearchOff,
+                                                contentDescription = "Banear de esta búsqueda",
                                                 tint = MaterialTheme.colorScheme.error
                                             )
                                         }

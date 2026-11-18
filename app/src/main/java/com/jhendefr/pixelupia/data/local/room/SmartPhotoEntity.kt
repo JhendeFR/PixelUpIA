@@ -21,5 +21,7 @@ data class SmartPhotoEntity(
     val sourceApp: String? = null,
     val searchContent: String = "",
     val semanticEmbedding: String? = null,
-    val excludedTags: List<String> = emptyList()
+    val excludedTags: List<String> = emptyList(),
+    val manualTags: List<String> = emptyList(),
+    val bannedSearchQueries: List<String> = emptyList()
 )

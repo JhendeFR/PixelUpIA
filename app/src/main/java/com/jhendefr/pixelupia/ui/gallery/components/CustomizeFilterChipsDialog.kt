@@ -52,15 +52,14 @@ fun CustomizeFilterChipsDialog(
 ) {
     var currentChips by remember(activeChips) { mutableStateOf(activeChips.toList()) }
     var newChipInput by remember { mutableStateOf("") }
+    var showAllSuggestions by remember { mutableStateOf(false) }
 
-    val defaultCommonCategories = listOf(
-        "Lugares", "Documentos", "Ropa", "Eventos", "Pagos",
-        "Mascotas", "Codigos QR", "Comida", "Automoviles", "Naturaleza"
-    )
-
-    val suggestedToAdd = (defaultCommonCategories + availableSuggestions)
-        .distinct()
+    val suggestedToAdd = availableSuggestions
+        .map { it.trim() }
+        .filter { it.isNotBlank() && !com.jhendefr.pixelupia.data.ml.ColorAttributeExtractor.isColorLabel(it) }
+        .distinctBy { it.lowercase(java.util.Locale.ROOT) }
         .filterNot { cat -> currentChips.any { it.equals(cat, ignoreCase = true) } }
+    val displayedSuggestions = if (showAllSuggestions) suggestedToAdd else suggestedToAdd.take(15)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -137,24 +136,34 @@ fun CustomizeFilterChipsDialog(
                     }
                 }
 
-                if (suggestedToAdd.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
+                Text(
+                    text = "Categorias sugeridas para agregar:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (suggestedToAdd.isEmpty()) {
                     Text(
-                        text = "Categorias sugeridas para agregar:",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        text = if (availableSuggestions.isEmpty()) {
+                            "Aun no hay categorias reconocidas por la IA. Analiza tus fotos para ver sugerencias."
+                        } else {
+                            "Ya agregaste todas las categorias reconocidas."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
+                } else {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        suggestedToAdd.take(12).forEach { suggestion ->
+                        displayedSuggestions.forEach { suggestion ->
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -182,6 +191,22 @@ fun CustomizeFilterChipsDialog(
                                     )
                                 }
                             }
+                        }
+                    }
+
+                    if (suggestedToAdd.size > 15) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        TextButton(
+                            onClick = { showAllSuggestions = !showAllSuggestions },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = if (showAllSuggestions) {
+                                    "Mostrar menos (15)"
+                                } else {
+                                    "Mostrar todas las reconocidas (${suggestedToAdd.size})"
+                                }
+                            )
                         }
                     }
                 }

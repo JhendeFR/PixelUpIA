@@ -78,14 +78,7 @@ class MobileClipEmbeddingDataSource(
                 order(ByteOrder.nativeOrder())
             }
 
-            // Normalizacion de MobileCLIP (media y desviacion de ImageNet)
-            val meanR = 0.48145466f
-            val meanG = 0.45782750f
-            val meanB = 0.40821073f
-            val stdR = 0.26862954f
-            val stdG = 0.26130258f
-            val stdB = 0.27577711f
-
+            // Escalado [0.0f, 1.0f] esperado por el codificador visual FastViT de Apple MobileCLIP-S0
             if (isNchw) {
                 val numPixels = targetSize * targetSize
                 val rChannel = FloatArray(numPixels)
@@ -94,13 +87,9 @@ class MobileClipEmbeddingDataSource(
 
                 for (i in intValues.indices) {
                     val pixel = intValues[i]
-                    val r = (pixel shr 16 and 0xFF) / 255.0f
-                    val g = (pixel shr 8 and 0xFF) / 255.0f
-                    val b = (pixel and 0xFF) / 255.0f
-                    // Normalizacion z-score
-                    rChannel[i] = (r - meanR) / stdR
-                    gChannel[i] = (g - meanG) / stdG
-                    bChannel[i] = (b - meanB) / stdB
+                    rChannel[i] = (pixel shr 16 and 0xFF) / 255.0f
+                    gChannel[i] = (pixel shr 8 and 0xFF) / 255.0f
+                    bChannel[i] = (pixel and 0xFF) / 255.0f
                 }
 
                 for (v in rChannel) inputBuffer.putFloat(v)
@@ -108,17 +97,9 @@ class MobileClipEmbeddingDataSource(
                 for (v in bChannel) inputBuffer.putFloat(v)
             } else {
                 for (pixel in intValues) {
-                    val r = (pixel shr 16 and 0xFF) / 255.0f
-                    val g = (pixel shr 8 and 0xFF) / 255.0f
-                    val b = (pixel and 0xFF) / 255.0f
-
-                    val normR = (r - meanR) / stdR
-                    val normG = (g - meanG) / stdG
-                    val normB = (b - meanB) / stdB
-
-                    inputBuffer.putFloat(normR)
-                    inputBuffer.putFloat(normG)
-                    inputBuffer.putFloat(normB)
+                    inputBuffer.putFloat((pixel shr 16 and 0xFF) / 255.0f)
+                    inputBuffer.putFloat((pixel shr 8 and 0xFF) / 255.0f)
+                    inputBuffer.putFloat((pixel and 0xFF) / 255.0f)
                 }
             }
 
@@ -259,13 +240,13 @@ class MobileClipEmbeddingDataSource(
         "a photo of a cat, feline, or kitten" to "Gato",
         "a photo of a person or portrait" to "Persona",
         "a photo of nature, trees, and landscape" to "Naturaleza",
-        "a photo of a document, paper, or text contract" to "Documento",
+        "a flat scan of a printed white paper page or contract" to "Documento",
         "a photo of an invoice, receipt, or payment bill" to "Factura / Recibo",
         "a photo of a party, concert, or celebration" to "Celebracion",
         "a photo of a beach, ocean, and sea" to "Playa",
         "a photo of mountains, hills, and scenic landscape" to "Montana",
         "a photo of clothing, dress, outfit, or fashion" to "Moda",
-        "a photo of a building, architecture, or city street" to "Arquitectura",
+        "a photo of a building, house, or urban architecture" to "Arquitectura",
         "a photo of flowers, garden, and blooming plants" to "Flores",
         "a photo of a computer, laptop, screen, or smartphone" to "Tecnologia",
         "a photo of the sky, clouds, sunset, or sunrise" to "Cielo / Atardecer"
@@ -318,6 +299,112 @@ class MobileClipEmbeddingDataSource(
         }
 
         return matches.sortedByDescending { it.second }.take(topK)
+    }
+
+    private data class LatentSuggestionEntry(
+        val clipPrompt: String,
+        val englishQuery: String,
+        val fallbackSpanish: String
+    )
+
+    private val latentSuggestionCatalog = listOf(
+        LatentSuggestionEntry("a photo of a car, automobile, or vehicle", "car", "auto"),
+        LatentSuggestionEntry("a photo of a red car", "red car", "auto rojo"),
+        LatentSuggestionEntry("a photo of a motorcycle", "motorcycle", "motocicleta"),
+        LatentSuggestionEntry("a photo of a bicycle", "bicycle", "bicicleta"),
+        LatentSuggestionEntry("a photo of delicious food, dish, or meal", "delicious food", "comida deliciosa"),
+        LatentSuggestionEntry("a photo of coffee or dessert", "coffee and dessert", "café y postre"),
+        LatentSuggestionEntry("a photo of a dog, canine, or puppy", "dog", "perro"),
+        LatentSuggestionEntry("a photo of a cat, feline, or kitten", "cat", "gato"),
+        LatentSuggestionEntry("a photo of a plush toy or stuffed animal", "plush toy", "peluche"),
+        LatentSuggestionEntry("a photo of a smiling person or portrait", "smiling portrait", "retrato sonriendo"),
+        LatentSuggestionEntry("a photo of friends or family gathering", "friends gathering", "reunión de amigos"),
+        LatentSuggestionEntry("a photo of nature, green trees, and forest", "trees and forest", "árboles y bosque"),
+        LatentSuggestionEntry("a photo of green bushes, leaves, and plants", "green plants", "plantas verdes"),
+        LatentSuggestionEntry("a photo of outdoor park or garden", "outdoor garden", "jardín exterior"),
+        LatentSuggestionEntry("a flat scan of a printed white paper page or contract", "paper document", "documento impreso"),
+        LatentSuggestionEntry("a photo of an invoice, receipt, or payment bill", "payment receipt", "comprobante de pago"),
+        LatentSuggestionEntry("a mobile screenshot of a chat conversation", "chat screenshot", "captura de chat"),
+        LatentSuggestionEntry("a photo of a qr code or barcode", "qr code", "código qr"),
+        LatentSuggestionEntry("a photo of a party, concert, or celebration", "party celebration", "fiesta o celebración"),
+        LatentSuggestionEntry("a photo of a beach, ocean, and sea", "sunny beach", "playa y mar"),
+        LatentSuggestionEntry("a photo of mountains, hills, and scenic landscape", "mountain landscape", "paisaje de montañas"),
+        LatentSuggestionEntry("a photo of water, river, or lake", "river or lake", "río o lago"),
+        LatentSuggestionEntry("a photo of clothing, outfit, or fashion", "fashion outfit", "ropa y moda"),
+        LatentSuggestionEntry("a photo of sneakers or shoes", "sneakers", "zapatillas"),
+        LatentSuggestionEntry("a photo of a building, house, or urban architecture", "building architecture", "edificio o casa"),
+        LatentSuggestionEntry("a photo of a rural brick house, cabin, or shed", "brick house or cabin", "casa de ladrillo o cabaña"),
+        LatentSuggestionEntry("a photo of graffiti or street art painted on a wall", "wall graffiti", "grafiti en pared"),
+        LatentSuggestionEntry("a photo of an indoor room or home furniture", "home interior", "interior de casa"),
+        LatentSuggestionEntry("a photo of flowers, garden, and blooming plants", "garden flowers", "flores de jardín"),
+        LatentSuggestionEntry("a photo of a computer, laptop, or smartphone screen", "computer screen", "pantalla de computadora"),
+        LatentSuggestionEntry("a photo of the sky, clouds, sunset, or sunrise", "sunset sky", "cielo al atardecer"),
+        LatentSuggestionEntry("a photo of a dark night scene or night lights", "night scene", "escena nocturna"),
+        LatentSuggestionEntry("a photo of books, study notes, or notebook", "study notes", "apuntes o libro"),
+        LatentSuggestionEntry("a photo of people playing sports or exercising", "sports activity", "actividad deportiva")
+    )
+
+    private val latentSuggestionEmbeddings = mutableListOf<Pair<FloatArray, LatentSuggestionEntry>>()
+
+    @Synchronized
+    private fun getLatentSuggestionEmbeddings(): List<Pair<FloatArray, LatentSuggestionEntry>> {
+        if (latentSuggestionEmbeddings.isEmpty()) {
+            for (entry in latentSuggestionCatalog) {
+                val emb = extractTextEmbeddingSync(entry.clipPrompt)
+                if (emb != null) {
+                    latentSuggestionEmbeddings.add(Pair(emb, entry))
+                }
+            }
+        }
+        return latentSuggestionEmbeddings
+    }
+
+    /**
+     * Genera sugerencias de busqueda en lenguaje natural desde el espacio latente 512D
+     * y las traduce inmediatamente al espanol mediante ML Kit Translate on-device.
+     */
+    suspend fun suggestSearchQueries(
+        imageEmbedding: FloatArray,
+        topK: Int = 4,
+        threshold: Float = 0.22f
+    ): List<com.jhendefr.pixelupia.domain.model.LatentSearchSuggestion> = withContext(Dispatchers.Default) {
+        val entries = getLatentSuggestionEmbeddings()
+        val allScored = entries.map { (textVec, entry) ->
+            Pair(entry, cosineSimilarity(imageEmbedding, textVec))
+        }.toMutableList()
+
+        val dogMatch = allScored.find { it.first.englishQuery == "dog" }
+        val catMatch = allScored.find { it.first.englishQuery == "cat" }
+        if (dogMatch != null && catMatch != null && kotlin.math.abs(dogMatch.second - catMatch.second) >= 0.02f) {
+            if (dogMatch.second > catMatch.second) allScored.remove(catMatch) else allScored.remove(dogMatch)
+        }
+
+        val sorted = allScored.sortedByDescending { it.second }
+        val topScore = sorted.firstOrNull()?.second ?: 0f
+
+        // Solo conservar sugerencias que superen el umbral y esten cerca del topScore (sin rellenar con ruido)
+        val selected = sorted
+            .filter { it.second >= threshold && it.second >= (topScore - 0.04f) }
+            .take(topK)
+            .ifEmpty {
+                // Si ninguna supera 0.22f, devolver solo la #1 si al menos supera 0.18f
+                sorted.take(1).filter { it.second >= 0.18f }
+            }
+
+        android.util.Log.d(
+            "MobileCLIP",
+            "Top sugerencias latentes: " + sorted.take(5).joinToString { "${it.first.englishQuery}=${"%.3f".format(it.second)}" }
+        )
+
+        selected.map { (entry, _) ->
+            val mlKitSpanish = queryTranslator.translateEnToEs(entry.englishQuery)
+            val isTranslated = !mlKitSpanish.isNullOrBlank()
+            com.jhendefr.pixelupia.domain.model.LatentSearchSuggestion(
+                queryEs = if (isTranslated) mlKitSpanish!! else entry.fallbackSpanish,
+                queryEn = entry.englishQuery,
+                isTranslatedByMlKit = isTranslated
+            )
+        }.distinctBy { it.queryEs.lowercase(java.util.Locale.ROOT) }
     }
 
     companion object {

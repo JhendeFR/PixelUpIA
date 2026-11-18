@@ -46,6 +46,8 @@ class GalleryViewModel(
     val uiState: StateFlow<GalleryUiState> = _uiState.asStateFlow()
 
     private val _searchQueryFlow = MutableStateFlow("")
+    private val _searchRefreshTrigger = MutableStateFlow(0L)
+    private var lastBannedSearchBatch: Pair<String, List<Long>>? = null
 
     private var cachedAllAppCollections: List<SmartCollectionItem> = emptyList()
     private var cachedAllVisualCollections: List<SmartCollectionItem> = emptyList()
@@ -94,9 +96,12 @@ class GalleryViewModel(
 
     private fun observeSmartPhotos() {
         viewModelScope.launch {
-            _searchQueryFlow
-                .debounce(280L)
-                .distinctUntilChanged()
+            combine(
+                _searchQueryFlow
+                    .debounce(280L)
+                    .distinctUntilChanged(),
+                _searchRefreshTrigger
+            ) { query, _ -> query }
                 .flatMapLatest { query ->
                     searchSmartPhotosUseCase(query)
                 }
@@ -189,16 +194,31 @@ class GalleryViewModel(
                 loadData()
             }
             is GalleryEvent.SelectTab -> {
-                _uiState.update { it.copy(selectedTab = event.tab) }
+                _uiState.update {
+                    it.copy(
+                        selectedTab = event.tab,
+                        selectedPhotoIds = emptySet()
+                    )
+                }
             }
             is GalleryEvent.SelectAlbum -> {
                 _uiState.update { it.copy(selectedAlbumName = event.albumName) }
             }
             is GalleryEvent.SelectIndexedFolder -> {
-                _uiState.update { it.copy(selectedIndexedFolderName = event.folderName) }
+                _uiState.update {
+                    it.copy(
+                        selectedIndexedFolderName = event.folderName,
+                        selectedPhotoIds = emptySet()
+                    )
+                }
             }
             is GalleryEvent.SelectSmartCollection -> {
-                _uiState.update { it.copy(selectedSmartCollection = event.collection) }
+                _uiState.update {
+                    it.copy(
+                        selectedSmartCollection = event.collection,
+                        selectedPhotoIds = emptySet()
+                    )
+                }
             }
             is GalleryEvent.TriggerBatchIndexFolder -> {
                 val folderPhotos = _uiState.value.photos.filter {
@@ -258,19 +278,59 @@ class GalleryViewModel(
                 }
             }
             is GalleryEvent.UpdateSmartSearchQuery -> {
-                _uiState.update { it.copy(smartSearchQuery = event.query) }
+                val changed = _uiState.value.smartSearchQuery != event.query
+                _uiState.update {
+                    if (changed) {
+                        it.copy(
+                            smartSearchQuery = event.query,
+                            selectedPhotoIds = emptySet()
+                        )
+                    } else {
+                        it.copy(smartSearchQuery = event.query)
+                    }
+                }
                 _searchQueryFlow.value = event.query
             }
             GalleryEvent.SelectAll -> {
-                val allIds = when (_uiState.value.selectedTab) {
-                    GalleryTab.PHOTOS -> _uiState.value.photos.map { it.id }.toSet()
-                    GalleryTab.SMART_AI -> _uiState.value.smartPhotos.map { it.id }.toSet()
+                val state = _uiState.value
+                val allIds = when (state.selectedTab) {
+                    GalleryTab.PHOTOS -> state.photos.map { it.id }.toSet()
                     GalleryTab.ALBUMS -> emptySet()
+                    GalleryTab.SMART_AI -> when {
+                        state.selectedFaceCluster != null -> state.selectedFaceClusterPhotos.map { it.id }.toSet()
+                        state.selectedSmartCollection != null -> {
+                            val q = state.smartSearchQuery
+                            val list = if (q.isBlank()) {
+                                state.selectedSmartCollection.photos
+                            } else {
+                                state.selectedSmartCollection.photos.filter {
+                                    it.name.contains(q, ignoreCase = true) ||
+                                        (it.sourceApp?.contains(q, ignoreCase = true) == true)
+                                }
+                            }
+                            list.map { it.id }.toSet()
+                        }
+                        state.selectedIndexedFolderName != null -> {
+                            val folder = state.selectedIndexedFolderName
+                            val base = if (state.smartSearchQuery.isEmpty()) state.photos else state.smartPhotos
+                            base.filter {
+                                it.folderName.equals(folder, ignoreCase = true) ||
+                                    it.folderName.contains(folder, ignoreCase = true)
+                            }.map { it.id }.toSet()
+                        }
+                        else -> state.smartPhotos.map { it.id }.toSet()
+                    }
                 }
                 _uiState.update { it.copy(selectedPhotoIds = allIds) }
             }
             GalleryEvent.ClearSelection -> {
                 _uiState.update { it.copy(selectedPhotoIds = emptySet()) }
+            }
+            GalleryEvent.BanSelectedPhotosFromSearch -> {
+                banSelectedPhotosFromCurrentSearch()
+            }
+            GalleryEvent.UndoLastSearchBan -> {
+                undoLastSearchBan()
             }
             is GalleryEvent.SelectFaceCluster -> {
                 clusterPhotosJob?.cancel()
@@ -648,7 +708,7 @@ class GalleryViewModel(
                 }
             }
             GalleryEvent.ClearUserMessage -> {
-                _uiState.update { it.copy(userMessage = null, errorMessage = null) }
+                _uiState.update { it.copy(userMessage = null, errorMessage = null, canUndoLastSearchBan = false) }
             }
 
             // Recuerdos Inteligentes (Smart Moments)
@@ -883,7 +943,69 @@ class GalleryViewModel(
         }
     }
 
+    private fun banSelectedPhotosFromCurrentSearch() {
+        val state = _uiState.value
+        val selectedIds = state.selectedPhotoIds.toList()
+        val cleanQuery = state.smartSearchQuery.trim()
+        if (selectedIds.isEmpty() || cleanQuery.isBlank()) return
+
+        val selectedIdSet = selectedIds.toSet()
+        lastBannedSearchBatch = cleanQuery to selectedIds
+
+        // Actualizar optimista en memoria para desaparicion inmediata en la grilla
+        _uiState.update {
+            it.copy(
+                smartPhotos = it.smartPhotos.filterNot { photo -> selectedIdSet.contains(photo.id) },
+                selectedPhotoIds = emptySet()
+            )
+        }
+
+        viewModelScope.launch {
+            val result = photoTagsManager?.banPhotosFromSearch(selectedIds, cleanQuery)
+            if (result == null || result.isFailure) {
+                lastBannedSearchBatch = null
+                _searchRefreshTrigger.value += 1
+                _uiState.update {
+                    it.copy(
+                        canUndoLastSearchBan = false,
+                        errorMessage = "No se pudieron excluir las imágenes seleccionadas"
+                    )
+                }
+            } else {
+                _searchRefreshTrigger.value += 1
+                val msg = if (selectedIds.size == 1) {
+                    "1 imagen ocultada al buscar '$cleanQuery'"
+                } else {
+                    "${selectedIds.size} imágenes ocultadas al buscar '$cleanQuery'"
+                }
+                _uiState.update {
+                    it.copy(
+                        canUndoLastSearchBan = true,
+                        userMessage = msg
+                    )
+                }
+            }
+        }
+    }
+
+    private fun undoLastSearchBan() {
+        val batch = lastBannedSearchBatch ?: return
+        lastBannedSearchBatch = null
+        val (query, ids) = batch
+        viewModelScope.launch {
+            photoTagsManager?.unbanPhotosFromSearch(ids, query)
+            _searchRefreshTrigger.value += 1
+            _uiState.update {
+                it.copy(
+                    canUndoLastSearchBan = false,
+                    userMessage = "Exclusión revertida para '$query'"
+                )
+            }
+        }
+    }
+
     fun clearAllInferences() {
+        lastBannedSearchBatch = null
         viewModelScope.launch(Dispatchers.IO) {
             smartGalleryDao?.let { dao ->
                 dao.clearAllSmartPhotos()
@@ -902,6 +1024,8 @@ class GalleryViewModel(
                     memoryStories = emptyList(),
                     semanticPhotos = emptyList(),
                     smartSearchQuery = "",
+                    selectedPhotoIds = emptySet(),
+                    canUndoLastSearchBan = false,
                     userMessage = "Se han limpiado todas las inferencias y datos de la base de datos"
                 )
             }

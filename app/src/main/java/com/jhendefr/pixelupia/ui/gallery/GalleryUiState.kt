@@ -69,7 +69,8 @@ data class GalleryUiState(
     val activeFilterChips: List<String> = listOf("Lugares", "Documentos", "Ropa", "Eventos", "Pagos", "Mascotas", "Codigos QR"),
     val semanticPhotos: List<com.jhendefr.pixelupia.data.local.room.SmartPhotoEntity> = emptyList(),
     val showSemanticPhotosDialog: Boolean = false,
-    val showAddPhotosToCollectionDialog: Boolean = false
+    val showAddPhotosToCollectionDialog: Boolean = false,
+    val canUndoLastSearchBan: Boolean = false
 ) {
     val isSelectionMode: Boolean get() = selectedPhotoIds.isNotEmpty()
     val selectedPhotos: List<Photo> get() = photos.filter { selectedPhotoIds.contains(it.id) }
@@ -161,4 +162,6 @@ sealed interface GalleryEvent {
     object ResetFilterChipsToDefault : GalleryEvent
     object ClearAllInferences : GalleryEvent
     data class ToggleSemanticPhotosDialog(val show: Boolean) : GalleryEvent
+    object BanSelectedPhotosFromSearch : GalleryEvent
+    object UndoLastSearchBan : GalleryEvent
 }

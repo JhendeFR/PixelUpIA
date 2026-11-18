@@ -53,6 +53,7 @@ import java.util.Locale
 fun ViewerScreen(
     viewModel: ViewerViewModel,
     isFromAi: Boolean = false,
+    onSearchSuggestion: ((String) -> Unit)? = null,
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -219,6 +220,7 @@ fun ViewerScreen(
             onViewFaceBoundingBox = {
                 viewModel.onEvent(ViewerEvent.TriggerFaceDetection(currentPhoto.uri))
             },
+            onSearchSuggestion = onSearchSuggestion,
             onDismiss = {
                 viewModel.onEvent(ViewerEvent.DismissMultimodalDetailsSheet)
             }

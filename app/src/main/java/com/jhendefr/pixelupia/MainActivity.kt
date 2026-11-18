@@ -35,7 +35,9 @@ import com.jhendefr.pixelupia.data.worker.WorkManagerScheduler
 import com.jhendefr.pixelupia.domain.usecase.*
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailScreen
 import com.jhendefr.pixelupia.ui.gallery.AlbumDetailViewModel
+import com.jhendefr.pixelupia.ui.gallery.GalleryEvent
 import com.jhendefr.pixelupia.ui.gallery.GalleryScreen
+import com.jhendefr.pixelupia.ui.gallery.GalleryTab
 import com.jhendefr.pixelupia.ui.gallery.GalleryViewModel
 import com.jhendefr.pixelupia.ui.theme.PixelUpIATheme
 import com.jhendefr.pixelupia.ui.viewer.ViewerScreen
@@ -280,6 +282,14 @@ class MainActivity : ComponentActivity() {
                             ViewerScreen(
                                 viewModel = viewerViewModel,
                                 isFromAi = fromAi,
+                                onSearchSuggestion = { query ->
+                                    galleryViewModel.onEvent(GalleryEvent.SelectTab(GalleryTab.SMART_AI))
+                                    galleryViewModel.onEvent(GalleryEvent.SelectFaceCluster(null))
+                                    galleryViewModel.onEvent(GalleryEvent.SelectSmartCollection(null))
+                                    galleryViewModel.onEvent(GalleryEvent.SelectIndexedFolder(null))
+                                    galleryViewModel.onEvent(GalleryEvent.UpdateSmartSearchQuery(query))
+                                    navController.popBackStack("gallery", inclusive = false)
+                                },
                                 onBackClick = { navController.popBackStack() }
                             )
                         }

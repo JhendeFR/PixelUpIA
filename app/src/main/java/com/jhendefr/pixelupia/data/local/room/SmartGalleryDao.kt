@@ -114,6 +114,25 @@ interface SmartGalleryDao {
         excludedTags: List<String>
     ): Int
 
+    @Query("""
+        UPDATE smart_photos 
+        SET labels = :labels,
+            manualTags = :manualTags,
+            searchContent = :searchContent,
+            excludedTags = :excludedTags
+        WHERE photoId = :photoId
+    """)
+    suspend fun updatePhotoTagsExclusionsAndManualTags(
+        photoId: Long,
+        labels: List<String>,
+        manualTags: List<String>,
+        searchContent: String,
+        excludedTags: List<String>
+    ): Int
+
+    @Query("UPDATE smart_photos SET bannedSearchQueries = :bannedSearchQueries WHERE photoId = :photoId")
+    suspend fun updateBannedSearchQueries(photoId: Long, bannedSearchQueries: List<String>): Int
+
     @Query("SELECT COUNT(DISTINCT photoId) FROM photo_cluster_cross_ref WHERE clusterId = :clusterId AND isExcluded = 0")
     suspend fun getClusterPhotoCount(clusterId: Long): Int
 

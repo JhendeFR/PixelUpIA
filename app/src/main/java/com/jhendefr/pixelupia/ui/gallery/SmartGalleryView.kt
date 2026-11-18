@@ -815,20 +815,32 @@ fun SmartGalleryView(
                             }
                         }
                     } else {
-                        // Renderizar las fotos encontradas en cuadrícula
+                        // Renderizar las fotos encontradas en cuadrícula con soporte multi-selección
                         smartPhotos.chunked(3).forEach { rowPhotos ->
-                            item {
+                            item(key = "search_row_${rowPhotos.first().id}") {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     for (photo in rowPhotos) {
+                                        val isSelected = selectedIds.contains(photo.id)
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .aspectRatio(1f)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .clickable { onPhotoClick(photo, "search_$searchQuery") }
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        if (isSelectionMode) {
+                                                            onToggleSelection(photo.id)
+                                                        } else {
+                                                            onPhotoClick(photo, "search_$searchQuery")
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        onToggleSelection(photo.id)
+                                                    }
+                                                )
                                         ) {
                                             AsyncImage(
                                                 model = photo.uri,
@@ -836,6 +848,23 @@ fun SmartGalleryView(
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxSize()
                                             )
+
+                                            if (isSelected) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(Color.Black.copy(alpha = 0.45f))
+                                                )
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = "Seleccionada",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(8.dp)
+                                                        .size(28.dp)
+                                                )
+                                            }
                                         }
                                     }
                                     repeat(3 - rowPhotos.size) {

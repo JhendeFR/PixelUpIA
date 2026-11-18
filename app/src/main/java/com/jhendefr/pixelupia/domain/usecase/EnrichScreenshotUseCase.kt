@@ -143,7 +143,7 @@ class EnrichScreenshotUseCase(
             }
 
             val hasFaces = facesDetailed.faces.isNotEmpty()
-            val formattedLabels = filteredLabelItems.map { it.formatted }
+            val formattedLabels = filteredLabelItems.map { it.text }.distinct()
             val formattedEntities = entityItems.map { "${it.text} (${it.type})" }
 
             val petLabelRegex = Regex("(?i)\\b(perro|perros|gato|gatos|mascota|mascotas|canino|felino|cachorro|gatito|dog|cat|pet|puppy|kitten|canidae|felidae|raza canina|hound|terrier|retriever|bulldog|shepherd|dalmata|boxer|basset hound|ragdoll|sphynx|shikoku|cairn terrier|pajaro|conejo|rabbit|hamster|hocico|bigotes|pelaje)\\b")
@@ -259,6 +259,7 @@ class EnrichScreenshotUseCase(
             // Extraccion de Embedding Semantico con MobileCLIP-S0 (Vision)
             val clipZeroShotLabels = mutableListOf<String>()
             var clipPredictions: List<Pair<String, Float>> = emptyList()
+            var latentSuggestions: List<com.jhendefr.pixelupia.domain.model.LatentSearchSuggestion> = emptyList()
             var latencyClip = 0L
             val semanticEmbeddingBase64 = if (loadedBitmap != null && mobileClipDataSource != null) {
                 var embResult: Result<FloatArray>? = null
@@ -273,10 +274,10 @@ class EnrichScreenshotUseCase(
                 if (rawEmb != null) {
                     val predictions = mobileClipDataSource.predictZeroShotLabels(rawEmb, topK = 3, threshold = 0.22f)
                     clipPredictions = predictions
-                    for ((label, score) in predictions) {
-                        val pct = (score * 100).toInt()
-                        clipZeroShotLabels.add("$label - $pct%")
+                    for ((label, _) in predictions) {
+                        clipZeroShotLabels.add(label)
                     }
+                    latentSuggestions = mobileClipDataSource.suggestSearchQueries(rawEmb)
                     com.jhendefr.pixelupia.data.ml.MobileClipEmbeddingDataSource.embeddingToBase64(rawEmb)
                 } else null
             } else {
@@ -349,16 +350,29 @@ class EnrichScreenshotUseCase(
             if (hasDogFromMlKit && !hasCatFromMlKit) {
                 clipZeroShotLabels.removeAll { it.startsWith("Gato", ignoreCase = true) }
                 clipPredictions = clipPredictions.filterNot { it.first.equals("Gato", ignoreCase = true) }
+                latentSuggestions = latentSuggestions.filterNot {
+                    it.queryEn.equals("cat", ignoreCase = true) || it.queryEs.equals("gato", ignoreCase = true)
+                }
             } else if (hasCatFromMlKit && !hasDogFromMlKit) {
                 clipZeroShotLabels.removeAll { it.startsWith("Perro", ignoreCase = true) }
                 clipPredictions = clipPredictions.filterNot { it.first.equals("Perro", ignoreCase = true) }
+                latentSuggestions = latentSuggestions.filterNot {
+                    it.queryEn.equals("dog", ignoreCase = true) || it.queryEs.equals("perro", ignoreCase = true)
+                }
+            }
+
+            // Preservar etiquetas agregadas manualmente al re-ejecutar el analisis completo
+            val preservedManualTags = (existingEntity?.manualTags ?: emptyList()).filter { manualTag ->
+                val lower = manualTag.lowercase(java.util.Locale.ROOT).trim()
+                lower.isNotBlank() && !excludedTagsSet.contains(lower)
             }
 
             // Construir indice concatenado enriquecido con expansion de sinonimos para busqueda FTS5
-            val allLabels = (multimodalResult.labels + colorPairs + clipZeroShotLabels + userNamedClusterLabels).distinct()
-            val cleanLabels = allLabels.map {
-                if (it.contains(" - ")) it.substringBeforeLast(" - ") else it
-            }
+            val allLabels = (preservedManualTags + multimodalResult.labels + colorPairs + clipZeroShotLabels + userNamedClusterLabels)
+                .map { if (it.contains(" - ")) it.substringBeforeLast(" - ").trim() else it.trim() }
+                .filter { it.isNotBlank() }
+                .distinctBy { it.lowercase(java.util.Locale.ROOT) }
+            val cleanLabels = allLabels
             val expandedLabelsContent = cleanLabels.joinToString(" ") { label ->
                 com.jhendefr.pixelupia.data.ml.SynonymRegistry.expandForSearchContent(label)
             }
@@ -427,7 +441,8 @@ class EnrichScreenshotUseCase(
             val finalMultimodalResult = multimodalResult.copy(
                 labels = allLabels,
                 hasSemanticEmbedding = semanticEmbeddingBase64 != null,
-                clipTopPredictions = clipPredictions
+                clipTopPredictions = clipPredictions,
+                latentSearchSuggestions = latentSuggestions
             )
 
 

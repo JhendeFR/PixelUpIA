@@ -156,4 +156,30 @@ object ColorAttributeExtractor {
 
         return colorVotes.maxByOrNull { it.value }?.key ?: "desconocido"
     }
+
+    private val canonicalColorTokens = setOf(
+        "rojo", "roja", "rojos", "rojas",
+        "azul", "azules",
+        "celeste", "celestes",
+        "verde", "verdes",
+        "amarillo", "amarilla", "amarillos", "amarillas",
+        "negro", "negra", "negros", "negras",
+        "blanco", "blanca", "blancos", "blancas",
+        "gris", "grises",
+        "marron", "marrones", "marrón",
+        "naranja", "naranjas",
+        "rosa", "rosas", "rosado", "rosada", "rosados", "rosadas",
+        "violeta", "violetas", "morado", "morada", "morados", "moradas"
+    )
+
+    /**
+     * Indica si una etiqueta corresponde a una combinacion objeto+color (ej. "Cielo negro", "Ocio negros")
+     * para mantenerla indexada en la base de datos sin mostrarla como album visual.
+     */
+    fun isColorLabel(label: String): Boolean {
+        val clean = label.substringBeforeLast(" - ").trim().lowercase(java.util.Locale.ROOT)
+        val tokens = clean.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (tokens.size < 2) return false
+        return tokens.last() in canonicalColorTokens
+    }
 }

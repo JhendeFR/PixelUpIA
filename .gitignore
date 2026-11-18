@@ -13,9 +13,3 @@
 .externalNativeBuild
 .cxx
 local.properties
-
-# Machine Learning models & Assets weights
-app/src/main/assets/*.tflite
-app/src/main/assets/*.onnx
-*.tflite
-*.onnx
